@@ -439,3 +439,83 @@ class TestGetBriefing:
 
         assert "temperature" in result["current_conditions"]
         assert result["alert_count"] == 1
+
+    @patch("stormscope.tools._iem")
+    @patch("stormscope.tools._spc")
+    @patch("stormscope.tools._nws")
+    async def test_full_briefing_with_mrgl_includes_probabilistic(self, mock_nws, mock_spc, mock_iem):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+        mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_alerts = m.get_alerts
+
+        mock_spc.get_spc_outlook = AsyncMock(return_value={
+            "risk_level": "MRGL",
+            "risk_description": "Marginal Risk",
+            "valid_time": "202603041200",
+            "expire_time": "202603051200",
+            "is_significant": False,
+            "day": 1,
+        })
+        mock_spc.get_national_outlook_summary = AsyncMock(return_value={
+            "day": 1, "areas": [], "valid_time": None,
+        })
+        mock_iem.get_radar_info = AsyncMock(return_value=MOCK_RADAR_RESPONSE)
+
+        from stormscope.tools import get_briefing
+        result = await get_briefing(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, detail="full")
+
+        assert "probabilistic_tornado" in result
+        assert "probabilistic_wind" in result
+        assert "probabilistic_hail" in result
+        assert "radar" in result
+        assert "national_day1" in result
+
+
+class TestValidation:
+    async def test_invalid_forecast_mode(self):
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, mode="invalid")
+        assert "error" in result
+        assert "invalid mode" in result["error"]
+
+    async def test_invalid_spc_day(self):
+        from stormscope.tools import get_spc_outlook
+        result = await get_spc_outlook(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, day=0)
+        assert "error" in result
+        assert "invalid day" in result["error"]
+
+    async def test_invalid_spc_day_too_high(self):
+        from stormscope.tools import get_spc_outlook
+        result = await get_spc_outlook(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, day=99)
+        assert "error" in result
+
+    async def test_invalid_outlook_type(self):
+        from stormscope.tools import get_spc_outlook
+        result = await get_spc_outlook(
+            MINNEAPOLIS_LAT, MINNEAPOLIS_LON, outlook_type="snow",
+        )
+        assert "error" in result
+        assert "invalid outlook_type" in result["error"]
+
+    async def test_invalid_national_day(self):
+        from stormscope.tools import get_national_outlook
+        result = await get_national_outlook(day=0)
+        assert "error" in result
+
+
+class TestAlertsResilience:
+    @patch("stormscope.tools._nws")
+    async def test_alerts_work_when_points_api_down(self, mock_nws):
+        mock_nws.get_alerts = AsyncMock(return_value=MOCK_ALERTS_RESPONSE)
+        mock_nws.get_point = AsyncMock(side_effect=Exception("points API down"))
+
+        from stormscope.tools import get_alerts
+        result = await get_alerts(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert result["count"] == 1
+        assert result["alerts"][0]["event"] == "Heat Advisory"
+        assert str(MINNEAPOLIS_LAT) in result["location"]
