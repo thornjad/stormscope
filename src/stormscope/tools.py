@@ -327,14 +327,109 @@ async def get_national_outlook(day: int = 1) -> dict:
     return await _spc.get_national_outlook_summary(day)
 
 
+def _build_radar_summary(obs: dict, hourly_periods: list[dict]) -> str:
+    """build a textual summary from observation and hourly forecast."""
+    parts = []
+
+    description = obs.get("textDescription", "")
+    if description:
+        parts.append(description)
+
+    present_weather = obs.get("presentWeather") or []
+    phenomena = [
+        pw.get("weather", "") for pw in present_weather
+        if pw.get("weather")
+    ]
+    if phenomena:
+        parts.append(f"({', '.join(phenomena)})")
+
+    cloud_layers = obs.get("cloudLayers") or []
+    for layer in cloud_layers:
+        amount = layer.get("amount", "")
+        base = layer.get("base", {})
+        base_m = base.get("value") if isinstance(base, dict) else None
+        if amount and base_m is not None:
+            base_ft = round(base_m * 3.281)
+            parts.append(f"{amount} clouds at {base_ft}ft")
+
+    if hourly_periods:
+        precip_parts = []
+        for p in hourly_periods[:6]:
+            prob = p.get("probabilityOfPrecipitation", {})
+            val = prob.get("value", 0) or 0
+            precip_parts.append((p.get("startTime", ""), val, p.get("shortForecast", "")))
+
+        max_prob = max(v for _, v, _ in precip_parts) if precip_parts else 0
+        if max_prob > 0:
+            high_periods = [(t, v, f) for t, v, f in precip_parts if v >= max_prob * 0.8]
+            if high_periods:
+                _, prob, fcst = high_periods[0]
+                parts.append(f"Precipitation {prob}% chance in near-term ({fcst})")
+        else:
+            parts.append("No precipitation expected in the next 6 hours")
+
+    return ". ".join(parts) + "." if parts else "No observation data available."
+
+
 async def get_radar(latitude: float, longitude: float) -> dict:
-    """Get NEXRAD radar metadata for a location."""
+    """Get NEXRAD radar metadata, textual summary, and clickable links."""
     try:
         point = await _nws.get_point(latitude, longitude)
         radar_station = point.get("radarStation", "")
         if not radar_station:
             return {"error": "no radar station found for this location"}
-        return await _iem.get_radar_info(radar_station)
+
+        wfo, gx, gy = point["gridId"], point["gridX"], point["gridY"]
+
+        radar_task = _iem.get_radar_info(radar_station)
+
+        # fetch observation and hourly forecast for summary
+        async def _fetch_obs():
+            stations = await _nws.get_stations(point["observationStations"])
+            if not stations:
+                return {}
+            return await _nws.get_latest_observation(stations[0]["stationIdentifier"])
+
+        obs_task = _fetch_obs()
+        hourly_task = _nws.get_hourly_forecast(wfo, gx, gy)
+
+        radar_info, obs, hourly = await asyncio.gather(
+            radar_task, obs_task, hourly_task, return_exceptions=True,
+        )
+
+        if isinstance(radar_info, Exception):
+            return {"error": f"failed to fetch radar: {radar_info}"}
+
+        obs = obs if not isinstance(obs, Exception) else {}
+        hourly_data = hourly if not isinstance(hourly, Exception) else {}
+        hourly_periods = hourly_data.get("periods", []) if isinstance(hourly_data, dict) else []
+
+        summary = _build_radar_summary(obs, hourly_periods)
+        current_weather = obs.get("textDescription", "N/A")
+
+        cloud_layers = obs.get("cloudLayers") or []
+        if cloud_layers:
+            top_layer = cloud_layers[-1].get("amount", "N/A")
+        else:
+            top_layer = "N/A"
+
+        imagery = radar_info.get("imagery_urls", {})
+        site = radar_station[1:] if len(radar_station) == 4 and radar_station.startswith("K") else radar_station
+        links = {}
+        if imagery.get("composite_url"):
+            links["regional_composite"] = imagery["composite_url"]
+        if imagery.get("site_url"):
+            links["local_radar"] = imagery["site_url"]
+
+        return {
+            "station_id": radar_info.get("station_id", radar_station),
+            "latest_scan_time": radar_info.get("latest_scan_time"),
+            "available_products": radar_info.get("available_products", []),
+            "summary": summary,
+            "current_weather": current_weather,
+            "cloud_cover": top_layer,
+            "links": links,
+        }
     except ValueError as exc:
         return {"error": str(exc)}
     except Exception as exc:

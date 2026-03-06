@@ -171,12 +171,16 @@ async def get_radar(
     latitude: float | None = None,
     longitude: float | None = None,
 ) -> dict:
-    """Get NEXRAD radar station metadata and imagery URLs for a US location.
+    """Get NEXRAD radar info with textual weather summary and clickable links.
 
     Use when: "Show me radar", "What does radar look like?", "Radar imagery?"
 
-    Returns station ID, available products, latest scan time, and imagery URLs
-    from Iowa Environmental Mesonet. Omit lat/lon to use configured primary location.
+    Returns a textual summary of current precipitation and near-term outlook
+    (useful when images can't be displayed), plus clickable links to radar
+    imagery the user can open in a browser. Also includes station ID, available
+    products, and latest scan time.
+
+    Omit lat/lon to use configured primary location.
     """
     try:
         lat, lon = _resolve_location(latitude, longitude)
