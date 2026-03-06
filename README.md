@@ -49,7 +49,7 @@ Or add to your Claude Code MCP config:
 | `PRIMARY_LONGITUDE` | none | Default longitude when coordinates aren't passed explicitly |
 | `UNITS` | `us` | Unit system (`us` or `si`) |
 
-All location-aware tools accept optional `latitude` and `longitude` parameters. When omitted, they fall back to the primary location. If neither is available, the tool returns an error explaining what to set.
+All location-aware tools accept optional `latitude` and `longitude` parameters. When omitted, they fall back to the primary location. If neither is available, the server approximates your location via IP geolocation (a single request to [ipinfo.io](https://ipinfo.io) per server session). City-level accuracy is sufficient for NWS grid resolution. For precise control, set the env vars above.
 
 ## Tools
 
