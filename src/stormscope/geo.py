@@ -223,7 +223,7 @@ async def geolocate_corelocation() -> tuple[float, float] | None:
         await asyncio.wait_for(proc.wait(), timeout=15.0)
         output = Path(tmp_path).read_text().strip()
         lat_s, lon_s = output.split(",")
-        _cl_location = (float(lat_s), float(lon_s))
+        _cl_location = (round(float(lat_s), 4), round(float(lon_s), 4))
         logger.info("CoreLocation: %s, %s", lat_s, lon_s)
     except Exception:
         logger.debug("CoreLocation geolocation failed", exc_info=True)

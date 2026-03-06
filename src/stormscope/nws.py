@@ -41,6 +41,7 @@ class NWSClient:
                         "Accept": "application/geo+json",
                     },
                     timeout=30.0,
+                    follow_redirects=True,
                 )
             return self._client
 
