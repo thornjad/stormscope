@@ -1,5 +1,6 @@
-"""geographic utilities for polygon-to-region descriptions and IP geolocation."""
+"""geographic utilities for polygon-to-region descriptions and geolocation."""
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -83,6 +84,34 @@ def polygon_to_region(polygon) -> str:
     return f"near {abs(centroid.y):.1f}{lat_dir} {abs(centroid.x):.1f}{lon_dir}"
 
 
+_cl_location: tuple[float, float] | None = None
+_cl_location_fetched = False
+
+
+async def geolocate_corelocation() -> tuple[float, float] | None:
+    """locate via macOS CoreLocationCLI, cached for server lifetime."""
+    global _cl_location, _cl_location_fetched
+    if _cl_location_fetched:
+        return _cl_location
+
+    _cl_location_fetched = True
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "CoreLocationCLI", "-format", "%latitude,%longitude", "-once", "yes",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+        lat_s, lon_s = stdout.decode().strip().split(",")
+        _cl_location = (float(lat_s), float(lon_s))
+        logger.info("CoreLocation: %s, %s", lat_s, lon_s)
+    except Exception:
+        logger.debug("CoreLocation geolocation failed", exc_info=True)
+        _cl_location = None
+
+    return _cl_location
+
+
 _ip_location: tuple[float, float] | None = None
 _ip_location_fetched = False
 
@@ -107,3 +136,13 @@ async def geolocate_ip() -> tuple[float, float] | None:
         _ip_location = None
 
     return _ip_location
+
+
+async def geolocate(disabled: bool = False) -> tuple[float, float] | None:
+    """resolve location via CoreLocation then IP fallback."""
+    if disabled:
+        return None
+    coords = await geolocate_corelocation()
+    if coords is not None:
+        return coords
+    return await geolocate_ip()

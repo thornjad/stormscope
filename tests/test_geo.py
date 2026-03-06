@@ -1,5 +1,6 @@
 """Tests for geographic utilities."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -7,7 +8,7 @@ import pytest
 from shapely.geometry import Polygon
 
 import stormscope.geo as geo_module
-from stormscope.geo import geolocate_ip, polygon_to_region
+from stormscope.geo import geolocate, geolocate_corelocation, geolocate_ip, polygon_to_region
 
 
 def test_oklahoma_polygon():
@@ -29,10 +30,12 @@ def test_fallback_for_ocean():
 
 
 @pytest.fixture(autouse=True)
-def _reset_ip_cache():
-    """reset the IP geolocation cache between tests."""
+def _reset_geo_cache():
+    """reset geolocation caches between tests."""
     geo_module._ip_location = None
     geo_module._ip_location_fetched = False
+    geo_module._cl_location = None
+    geo_module._cl_location_fetched = False
 
 
 class TestGeolocateIp:
@@ -96,3 +99,82 @@ class TestGeolocateIp:
             mock_client_cls2.assert_not_called()
 
         assert first == second == (40.7128, -74.006)
+
+
+class TestGeolocateCorelocation:
+    @pytest.mark.asyncio
+    async def test_successful_parse(self):
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"44.9778,-93.2650\n", b"")
+
+        with patch("stormscope.geo.asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = await geolocate_corelocation()
+
+        assert result == (44.9778, -93.265)
+
+    @pytest.mark.asyncio
+    async def test_command_not_found_returns_none(self):
+        with patch(
+            "stormscope.geo.asyncio.create_subprocess_exec",
+            side_effect=FileNotFoundError("CoreLocationCLI not found"),
+        ):
+            result = await geolocate_corelocation()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_none(self):
+        mock_proc = AsyncMock()
+        mock_proc.communicate.side_effect = asyncio.TimeoutError()
+
+        with patch("stormscope.geo.asyncio.create_subprocess_exec", return_value=mock_proc):
+            result = await geolocate_corelocation()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_caching_skips_second_call(self):
+        mock_proc = AsyncMock()
+        mock_proc.communicate.return_value = (b"40.7128,-74.0060\n", b"")
+
+        with patch("stormscope.geo.asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            first = await geolocate_corelocation()
+
+        with patch("stormscope.geo.asyncio.create_subprocess_exec") as mock_exec2:
+            second = await geolocate_corelocation()
+            mock_exec2.assert_not_called()
+
+        assert first == second == (40.7128, -74.006)
+
+
+class TestGeolocate:
+    @pytest.mark.asyncio
+    @patch("stormscope.geo.geolocate_ip", new_callable=AsyncMock)
+    @patch("stormscope.geo.geolocate_corelocation", new_callable=AsyncMock, return_value=(44.9, -93.2))
+    async def test_corelocation_succeeds_skips_ip(self, mock_cl, mock_ip):
+        result = await geolocate()
+        assert result == (44.9, -93.2)
+        mock_ip.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @patch("stormscope.geo.geolocate_ip", new_callable=AsyncMock, return_value=(40.7, -74.0))
+    @patch("stormscope.geo.geolocate_corelocation", new_callable=AsyncMock, return_value=None)
+    async def test_corelocation_fails_falls_through_to_ip(self, mock_cl, mock_ip):
+        result = await geolocate()
+        assert result == (40.7, -74.0)
+
+    @pytest.mark.asyncio
+    @patch("stormscope.geo.geolocate_ip", new_callable=AsyncMock, return_value=None)
+    @patch("stormscope.geo.geolocate_corelocation", new_callable=AsyncMock, return_value=None)
+    async def test_both_fail_returns_none(self, mock_cl, mock_ip):
+        result = await geolocate()
+        assert result is None
+
+    @pytest.mark.asyncio
+    @patch("stormscope.geo.geolocate_ip", new_callable=AsyncMock)
+    @patch("stormscope.geo.geolocate_corelocation", new_callable=AsyncMock)
+    async def test_disabled_returns_none(self, mock_cl, mock_ip):
+        result = await geolocate(disabled=True)
+        assert result is None
+        mock_cl.assert_not_awaited()
+        mock_ip.assert_not_awaited()

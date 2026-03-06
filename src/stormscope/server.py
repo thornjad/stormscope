@@ -6,7 +6,7 @@ from fastmcp import FastMCP
 
 from stormscope import tools
 from stormscope.config import config
-from stormscope.geo import geolocate_ip
+from stormscope.geo import geolocate
 
 
 @asynccontextmanager
@@ -50,7 +50,7 @@ async def _resolve_location(
     lon = longitude if longitude is not None else config.primary_longitude
     if lat is not None and lon is not None:
         return lat, lon
-    coords = await geolocate_ip()
+    coords = await geolocate(disabled=config.disable_auto_geolocation)
     if coords is not None:
         return coords
     raise ValueError(

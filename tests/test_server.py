@@ -33,30 +33,43 @@ class TestResolveLocation:
         assert lon == -93.2
 
     @pytest.mark.asyncio
-    @patch("stormscope.server.geolocate_ip", new_callable=AsyncMock, return_value=None)
+    @patch("stormscope.server.geolocate", new_callable=AsyncMock, return_value=None)
     @patch("stormscope.server.config")
     async def test_no_location_raises(self, mock_config, _mock_geo):
         mock_config.primary_latitude = None
         mock_config.primary_longitude = None
+        mock_config.disable_auto_geolocation = False
         with pytest.raises(ValueError, match="PRIMARY_LATITUDE"):
             await _resolve_location(None, None)
 
     @pytest.mark.asyncio
-    @patch("stormscope.server.geolocate_ip", new_callable=AsyncMock, return_value=(40.7, -74.0))
+    @patch("stormscope.server.geolocate", new_callable=AsyncMock, return_value=(40.7, -74.0))
     @patch("stormscope.server.config")
-    async def test_fallback_to_ip_geolocation(self, mock_config, mock_geo):
+    async def test_fallback_to_geolocation(self, mock_config, mock_geo):
         mock_config.primary_latitude = None
         mock_config.primary_longitude = None
+        mock_config.disable_auto_geolocation = False
         lat, lon = await _resolve_location(None, None)
         assert lat == 40.7
         assert lon == -74.0
-        mock_geo.assert_awaited_once()
+        mock_geo.assert_awaited_once_with(disabled=False)
 
     @pytest.mark.asyncio
-    @patch("stormscope.server.geolocate_ip", new_callable=AsyncMock)
+    @patch("stormscope.server.geolocate", new_callable=AsyncMock)
     @patch("stormscope.server.config")
-    async def test_config_skips_ip_geolocation(self, mock_config, mock_geo):
+    async def test_config_skips_geolocation(self, mock_config, mock_geo):
         mock_config.primary_latitude = 44.9
         mock_config.primary_longitude = -93.2
         await _resolve_location(None, None)
         mock_geo.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @patch("stormscope.server.geolocate", new_callable=AsyncMock, return_value=None)
+    @patch("stormscope.server.config")
+    async def test_disable_auto_geolocation(self, mock_config, mock_geo):
+        mock_config.primary_latitude = None
+        mock_config.primary_longitude = None
+        mock_config.disable_auto_geolocation = True
+        with pytest.raises(ValueError, match="PRIMARY_LATITUDE"):
+            await _resolve_location(None, None)
+        mock_geo.assert_awaited_once_with(disabled=True)
