@@ -20,6 +20,7 @@ _TTL_GRIDPOINT = 1800   # 30min
 
 _MAX_RETRIES = 3
 _RATE_LIMIT_WAIT = 5.0
+_UNITS_PARAM = "si" if config.units == "si" else "us"
 
 
 class NWSClient:
@@ -137,7 +138,7 @@ class NWSClient:
             return cached
 
         try:
-            url = f"/gridpoints/{wfo}/{x},{y}/forecast?units=us"
+            url = f"/gridpoints/{wfo}/{x},{y}/forecast?units={_UNITS_PARAM}"
             data = await self._request(url)
             result = data["properties"]
             await self._cache.set(key, result, _TTL_FORECAST)
@@ -155,7 +156,7 @@ class NWSClient:
             return cached
 
         try:
-            url = f"/gridpoints/{wfo}/{x},{y}/forecast/hourly?units=us"
+            url = f"/gridpoints/{wfo}/{x},{y}/forecast/hourly?units={_UNITS_PARAM}"
             data = await self._request(url)
             result = data["properties"]
             await self._cache.set(key, result, _TTL_FORECAST)
@@ -182,9 +183,7 @@ class NWSClient:
                 return cached
             raise
 
-    async def get_detailed_forecast(
-        self, wfo: str, x: int, y: int, parameters: list[str] | None = None, hours: int = 48,
-    ) -> dict:
+    async def get_detailed_forecast(self, wfo: str, x: int, y: int) -> dict:
         """Fetch raw gridpoint time-value series."""
         key = f"grid:{wfo},{x},{y}"
         cached, is_stale = await self._cache.get(key)

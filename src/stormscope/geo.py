@@ -74,4 +74,6 @@ def polygon_to_region(polygon) -> str:
     if best_name and best_dist < 2.0:
         return f"near {best_name}"
 
-    return f"near {centroid.y:.1f}N {abs(centroid.x):.1f}W"
+    lat_dir = "N" if centroid.y >= 0 else "S"
+    lon_dir = "W" if centroid.x < 0 else "E"
+    return f"near {abs(centroid.y):.1f}{lat_dir} {abs(centroid.x):.1f}{lon_dir}"

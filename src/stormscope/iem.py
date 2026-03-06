@@ -100,6 +100,7 @@ class IEMClient:
             return result
 
         except Exception:
+            logger.warning("IEM request failed for %s", radar_station, exc_info=True)
             if cached is not None:
                 return {**cached, "_stale": True, "_stale_reason": "source unavailable"}
 

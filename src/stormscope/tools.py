@@ -14,7 +14,10 @@ logger = logging.getLogger(__name__)
 _nws = NWSClient()
 _spc = SPCClient()
 _iem = IEMClient()
-_si = config.units == "si"
+
+
+def _is_si() -> bool:
+    return config.units == "si"
 
 
 def _obs_value(obs: dict, field: str) -> float | None:
@@ -25,7 +28,7 @@ def _obs_value(obs: dict, field: str) -> float | None:
 
 
 def _fmt_temp(value: float | None, celsius: float | None = None) -> str:
-    if _si:
+    if _is_si():
         if celsius is None:
             return "N/A"
         return f"{round(celsius)}°C"
@@ -40,7 +43,7 @@ def _fmt_wind(speed: float | None, direction: str | None) -> str:
     s = round(speed)
     if s == 0:
         return "Calm"
-    unit = "km/h" if _si else "mph"
+    unit = "km/h" if _is_si() else "mph"
     if direction:
         return f"{direction} {s} {unit}"
     return f"{s} {unit}"
@@ -53,7 +56,7 @@ def _fmt_humidity(value: float | None) -> str:
 
 
 def _fmt_visibility(miles: float | None, meters: float | None = None) -> str:
-    if _si:
+    if _is_si():
         if meters is None:
             return "N/A"
         km = meters / 1000
@@ -64,7 +67,7 @@ def _fmt_visibility(miles: float | None, meters: float | None = None) -> str:
 
 
 def _fmt_pressure(inhg: float | None, pascals: float | None = None) -> str:
-    if _si:
+    if _is_si():
         if pascals is None:
             return "N/A"
         hpa = pascals / 100
@@ -77,7 +80,7 @@ def _fmt_pressure(inhg: float | None, pascals: float | None = None) -> str:
 def _fmt_gust(speed: float | None) -> str:
     if speed is None:
         return "None"
-    unit = "km/h" if _si else "mph"
+    unit = "km/h" if _is_si() else "mph"
     return f"{round(speed)} {unit}"
 
 
@@ -126,8 +129,8 @@ async def get_conditions(
         feels_like_c = heat_index_c if heat_index_c is not None else wind_chill_c
         feels_like_f = c_to_f(feels_like_c) or temp_f
 
-        wind_speed = wind_kmh if _si else kmh_to_mph(wind_kmh)
-        gust_speed = gust_kmh if _si else kmh_to_mph(gust_kmh)
+        wind_speed = wind_kmh if _is_si() else kmh_to_mph(wind_kmh)
+        gust_speed = gust_kmh if _is_si() else kmh_to_mph(gust_kmh)
         cardinal = degrees_to_cardinal(wind_deg)
 
         result = {
@@ -160,11 +163,16 @@ async def get_conditions(
         return {"error": f"failed to fetch conditions: {exc}"}
 
 
+_VALID_MODES = {"daily", "hourly", "raw"}
+
+
 async def get_forecast(
     latitude: float, longitude: float,
     mode: str = "daily", days: int = 7, hours: int = 24,
 ) -> dict:
     """Get forecast: daily (12h periods), hourly, or raw gridpoint data."""
+    if mode not in _VALID_MODES:
+        return {"error": f"invalid mode '{mode}', must be one of: daily, hourly, raw"}
     try:
         point = await _nws.get_point(latitude, longitude)
         wfo, x, y = point["gridId"], point["gridX"], point["gridY"]
@@ -232,9 +240,14 @@ async def get_alerts(
 ) -> dict:
     """Get active weather alerts."""
     try:
-        point = await _nws.get_point(latitude, longitude)
         data = await _nws.get_alerts(latitude, longitude)
         features = data.get("features", [])
+
+        try:
+            point = await _nws.get_point(latitude, longitude)
+            location = _location_name(point)
+        except Exception:
+            location = f"{latitude}, {longitude}"
 
         alerts = sorted(
             [f["properties"] for f in features],
@@ -273,7 +286,7 @@ async def get_alerts(
             formatted.append(entry)
 
         return {
-            "location": _location_name(point),
+            "location": location,
             "count": len(formatted),
             "alerts": formatted,
         }
@@ -284,16 +297,25 @@ async def get_alerts(
         return {"error": f"failed to fetch alerts: {exc}"}
 
 
+_VALID_OUTLOOK_TYPES = {"categorical", "tornado", "wind", "hail"}
+
+
 async def get_spc_outlook(
     latitude: float, longitude: float,
     outlook_type: str = "categorical", day: int = 1,
 ) -> dict:
     """Get SPC outlook for a point — categorical or probabilistic."""
+    if day < 1 or day > 3:
+        return {"error": f"invalid day {day}, must be 1-3"}
+    if outlook_type not in _VALID_OUTLOOK_TYPES:
+        return {"error": f"invalid outlook_type '{outlook_type}', must be one of: categorical, tornado, wind, hail"}
     return await _spc.get_spc_outlook(latitude, longitude, day, outlook_type)
 
 
 async def get_national_outlook(day: int = 1) -> dict:
     """Get CONUS-wide SPC risk areas."""
+    if day < 1 or day > 3:
+        return {"error": f"invalid day {day}, must be 1-3"}
     return await _spc.get_national_outlook_summary(day)
 
 

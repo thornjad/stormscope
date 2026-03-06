@@ -36,12 +36,25 @@ def _cache_ttl(day: int) -> float:
 class SPCClient:
     def __init__(self):
         self._cache = TTLCache()
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                headers={"User-Agent": config.user_agent},
+                timeout=30.0,
+            )
+        return self._client
 
     async def _fetch_geojson(self, url: str) -> dict:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, headers={"User-Agent": config.user_agent})
-            resp.raise_for_status()
-            return resp.json()
+        client = await self._get_client()
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def close(self):
+        if self._client and not self._client.is_closed:
+            await self._client.close()
 
     async def get_categorical_outlook(self, day: int = 1) -> dict:
         cache_key = f"spc_cat_day{day}"
@@ -86,7 +99,7 @@ class SPCClient:
         """Check categorical risk level for a point (backward-compatible)."""
         try:
             outlook = await self.get_categorical_outlook(day)
-        except (httpx.HTTPError, Exception) as exc:
+        except Exception as exc:
             return {"error": f"Failed to fetch SPC outlook: {exc}"}
 
         return self._point_in_categorical(outlook, lat, lon, day)
@@ -97,7 +110,7 @@ class SPCClient:
         """Fetch outlook and check point-in-polygon for categorical or probabilistic."""
         try:
             data = await self.fetch_outlook(day, outlook_type)
-        except (httpx.HTTPError, Exception) as exc:
+        except Exception as exc:
             return {"error": f"Failed to fetch SPC {outlook_type} outlook: {exc}"}
 
         if outlook_type == "categorical":
@@ -179,7 +192,7 @@ class SPCClient:
 
         try:
             outlook = await self.get_categorical_outlook(day)
-        except (httpx.HTTPError, Exception) as exc:
+        except Exception as exc:
             return {"error": f"Failed to fetch SPC outlook: {exc}"}
 
         areas = []
