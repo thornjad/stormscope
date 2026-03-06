@@ -346,6 +346,8 @@ def _build_radar_summary(obs: dict, hourly_periods: list[dict]) -> str:
     cloud_layers = obs.get("cloudLayers") or []
     for layer in cloud_layers:
         amount = layer.get("amount", "")
+        if amount in ("CLR", "SKC"):
+            continue
         base = layer.get("base", {})
         base_m = base.get("value") if isinstance(base, dict) else None
         if amount and base_m is not None:
