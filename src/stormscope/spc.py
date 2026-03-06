@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 SPC_BASE = "https://www.spc.noaa.gov/products/outlook"
 SPC_OUTLOOK_URL = f"{SPC_BASE}/day{{day}}otlk_cat.nolyr.geojson"
-SPC_PROB_URL = f"{SPC_BASE}/day{{day}}otlk_{{hazard}}_prob.nolyr.geojson"
+SPC_PROB_URL = f"{SPC_BASE}/day{{day}}otlk_{{hazard}}.nolyr.geojson"
+_HAZARD_SLUGS = {"tornado": "torn", "wind": "wind", "hail": "hail"}
 
 _TTL_DAY1 = 900    # 15min
 _TTL_DAY2_3 = 1800  # 30min
@@ -53,6 +54,8 @@ class SPCClient:
         client = await self._get_client()
         resp = await client.get(url)
         resp.raise_for_status()
+        if not resp.content:
+            return {"features": []}
         return resp.json()
 
     async def close(self):
@@ -83,7 +86,8 @@ class SPCClient:
             return cached
 
         try:
-            url = SPC_PROB_URL.format(day=day, hazard=hazard)
+            slug = _HAZARD_SLUGS.get(hazard, hazard)
+            url = SPC_PROB_URL.format(day=day, hazard=slug)
             data = await self._fetch_geojson(url)
             await self._cache.set(cache_key, data, _cache_ttl(day))
             return data

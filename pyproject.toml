@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stormscope"
-version = "0.1.0"
+version = "0.9.0"
 description = "MCP server for real-time US weather data via NWS API, NOAA SPC, and IEM radar"
 readme = "README.md"
 license = "ISC"

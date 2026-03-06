@@ -35,12 +35,12 @@ class NWSClient:
         async with self._client_lock:
             if self._client is None or self._client.is_closed:
                 self._client = httpx.AsyncClient(
-                base_url=BASE_URL,
-                headers={
-                    "User-Agent": config.user_agent,
-                    "Accept": "application/geo+json",
-                },
-                timeout=30.0,
+                    base_url=BASE_URL,
+                    headers={
+                        "User-Agent": config.user_agent,
+                        "Accept": "application/geo+json",
+                    },
+                    timeout=30.0,
                 )
             return self._client
 
