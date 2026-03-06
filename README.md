@@ -1,37 +1,24 @@
 # stormscope
 
-Real-time US weather data for AI assistants via MCP. Uses the free NWS API, NOAA Storm Prediction Center data, and Iowa Environmental Mesonet radar -- no API keys, no rate limits, no accounts.
+Real-time US weather data for AI assistants via MCP. Uses the free NWS API, NOAA Storm Prediction Center data, and Iowa Environmental Mesonet radar.
+
+US locations only -- covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return a clear error. The SPC national outlook covers the contiguous US only.
 
 ## What it does
 
-- Current conditions with standard or full detail (METAR, cloud layers, dewpoint)
-- Forecast in daily, hourly, or raw gridpoint modes
-- Active weather alerts with optional VTEC codes and polygon geometry
-- SPC severe weather outlook -- categorical risk or probabilistic tornado/wind/hail
-- CONUS-wide national severe outlook with region descriptions
-- NEXRAD radar station metadata and imagery URLs
-- Combined briefing that adapts detail level to the weather situation
+Most tools support a `detail` parameter: **standard** gives a clean summary, **full** adds the technical depth (METAR, VTEC codes, polygon geometry, probabilistic outlooks).
 
-A `detail` parameter on shared tools lets casual users get simple output while enthusiasts get the full picture.
+- Current conditions -- temperature, wind, humidity, sky, pressure
+- Forecast -- daily narrative periods, hourly, or raw gridpoint time-value series
+- Active weather alerts with severity filtering
+- SPC severe weather outlook -- categorical risk or probabilistic tornado/wind/hail
+- National severe outlook with human-readable region descriptions
+- NEXRAD radar station metadata and imagery URLs
+- Combined briefing that pulls everything together and adapts to the situation
+
+## Installation
 
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
-
-## Configuration
-
-```bash
-export PRIMARY_LATITUDE=44.9778
-export PRIMARY_LONGITUDE=-93.2650
-```
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PRIMARY_LATITUDE` | -- | Primary location latitude |
-| `PRIMARY_LONGITUDE` | -- | Primary location longitude |
-| `UNITS` | `us` | Unit system (`us` or `si`) |
-
-All location-aware tools accept optional `latitude` and `longitude` parameters. When omitted, they fall back to the configured primary location. If no primary location is set and no coordinates are provided, the tool returns an error.
-
-## Claude Code integration
 
 ```bash
 claude mcp add stormscope -- uvx --from git+https://github.com/thornjad/stormscope stormscope
@@ -54,37 +41,49 @@ Or add to your Claude Code MCP config:
 }
 ```
 
+## Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PRIMARY_LATITUDE` | none | Default latitude when coordinates aren't passed explicitly |
+| `PRIMARY_LONGITUDE` | none | Default longitude when coordinates aren't passed explicitly |
+| `UNITS` | `us` | Unit system (`us` or `si`) |
+
+All location-aware tools accept optional `latitude` and `longitude` parameters. When omitted, they fall back to the primary location. If neither is available, the tool returns an error explaining what to set.
+
 ## Tools
 
-| Tool | Params | Description |
-|------|--------|-------------|
-| `get_conditions` | `detail` (standard/full) | Current conditions. Full adds dewpoint, cloud layers, present weather, raw METAR |
-| `get_forecast` | `mode` (daily/hourly/raw), `days`, `hours` | Daily 12h periods, hourly, or raw gridpoint time-value series |
-| `get_alerts` | `severity_filter`, `detail` (standard/full) | Active alerts. Full adds VTEC, polygon geometry, areaDesc |
-| `get_spc_outlook` | `outlook_type` (categorical/tornado/wind/hail), `day` | Categorical risk level or probabilistic hazard probability |
-| `get_national_outlook` | `day` | CONUS-wide risk areas with region descriptions (no lat/lon needed) |
-| `get_radar` | -- | NEXRAD station metadata and imagery URLs via IEM |
-| `get_briefing` | `detail` (standard/full) | Combined briefing. Full adds probabilistic (when MRGL+), national, radar, day 2-3 |
+| Tool | Description | Key params |
+|------|-------------|------------|
+| `get_conditions` | Current conditions at a station | `detail`: standard or full |
+| `get_forecast` | Forecast in multiple formats | `mode`: daily, hourly, or raw; `days`; `hours` |
+| `get_alerts` | Active weather alerts | `severity_filter`; `detail`: standard or full |
+| `get_spc_outlook` | SPC outlook for a point | `outlook_type`: categorical, tornado, wind, or hail; `day`: 1-3 |
+| `get_national_outlook` | CONUS-wide risk areas (no lat/lon) | `day`: 1-3 |
+| `get_radar` | NEXRAD radar metadata and imagery URLs | -- |
+| `get_briefing` | Combined briefing -- the default for general weather questions | `detail`: standard or full |
 
 All location-aware tools accept optional `latitude`/`longitude`, falling back to `PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE`.
 
-### Example output
+### Example conversation
 
-**Standard** (`get_briefing`):
+These examples show how an AI assistant might present stormscope data -- the tools return structured JSON, and the assistant formats it for the user.
+
+**"What's the weather?"** (uses `get_briefing`):
 
 ```
-Currently 72°F and Mostly Sunny in Minneapolis, MN.
-Feels like 72°F. Wind SW 8 mph. Humidity 45%.
-Today: High 78°F, increasing clouds, chance of PM thunderstorms.
-Tonight: Low 58°F, scattered thunderstorms likely.
+Currently 72F and Mostly Sunny in Minneapolis, MN.
+Feels like 72F. Wind SW 8 mph. Humidity 45%.
+Today: High 78F, increasing clouds, chance of PM thunderstorms.
+Tonight: Low 58F, scattered thunderstorms likely.
 Severe Weather: Marginal Risk (MRGL) - isolated severe storms possible.
 Alerts: None active.
 ```
 
-**Full detail** (`get_briefing detail=full`):
+**"Give me the full picture"** (uses `get_briefing detail=full`):
 
 ```
-...plus dewpoint 50°F, cloud layers FEW at 3000m, METAR: KMSP 041200Z...
+...plus dewpoint 50F, cloud layers FEW at 3000m, METAR: KMSP 041200Z...
 Probabilistic: 5% tornado (significant), 15% wind, 15% hail
 National: SLGT risk in central Oklahoma, MRGL in northern Texas
 Radar: KMPX, latest scan 12:00Z, N0B/N0S available
@@ -99,10 +98,6 @@ Create `.claude/skills/` skills for common patterns:
 - **Quick check**: `get_conditions` -- just current conditions
 - **Evening review**: `get_forecast mode=daily days=2` -- tonight and tomorrow
 - **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_radar` + `get_alerts detail=full`
-
-## Coverage
-
-US locations only. The NWS API covers the 50 states, DC, and US territories. Requests for non-US locations return a clear error message.
 
 ## Disclaimer
 
