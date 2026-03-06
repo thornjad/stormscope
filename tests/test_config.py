@@ -49,3 +49,28 @@ class TestFromEnv:
         cfg = Config.from_env()
         assert "stormscope/" in cfg.user_agent
         assert "github.com/thornjad/stormscope" in cfg.user_agent
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_disable_auto_geolocation_default(self):
+        cfg = Config.from_env()
+        assert cfg.disable_auto_geolocation is False
+
+    @patch.dict(os.environ, {"DISABLE_AUTO_GEOLOCATION": "true"}, clear=True)
+    def test_disable_auto_geolocation_true(self):
+        cfg = Config.from_env()
+        assert cfg.disable_auto_geolocation is True
+
+    @patch.dict(os.environ, {"DISABLE_AUTO_GEOLOCATION": "1"}, clear=True)
+    def test_disable_auto_geolocation_one(self):
+        cfg = Config.from_env()
+        assert cfg.disable_auto_geolocation is True
+
+    @patch.dict(os.environ, {"DISABLE_AUTO_GEOLOCATION": "YES"}, clear=True)
+    def test_disable_auto_geolocation_yes(self):
+        cfg = Config.from_env()
+        assert cfg.disable_auto_geolocation is True
+
+    @patch.dict(os.environ, {"DISABLE_AUTO_GEOLOCATION": "false"}, clear=True)
+    def test_disable_auto_geolocation_false(self):
+        cfg = Config.from_env()
+        assert cfg.disable_auto_geolocation is False

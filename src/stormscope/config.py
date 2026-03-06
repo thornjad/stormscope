@@ -32,6 +32,7 @@ class Config:
     primary_longitude: float | None
     units: str
     user_agent: str
+    disable_auto_geolocation: bool
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -40,11 +41,16 @@ class Config:
             logger.warning("unrecognized UNITS value %r, defaulting to 'us'", units)
             units = "us"
 
+        disable_geo = os.environ.get(
+            "DISABLE_AUTO_GEOLOCATION", ""
+        ).lower() in ("true", "1", "yes")
+
         return cls(
             primary_latitude=_parse_coord("PRIMARY_LATITUDE"),
             primary_longitude=_parse_coord("PRIMARY_LONGITUDE"),
             units=units,
             user_agent=_build_user_agent(),
+            disable_auto_geolocation=disable_geo,
         )
 
 
