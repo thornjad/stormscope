@@ -60,7 +60,7 @@ All location-aware tools accept optional `latitude` and `longitude` parameters. 
 | `get_alerts` | Active weather alerts | `severity_filter`; `detail`: standard or full |
 | `get_spc_outlook` | SPC outlook for a point | `outlook_type`: categorical, tornado, wind, or hail; `day`: 1-3 |
 | `get_national_outlook` | CONUS-wide risk areas (no lat/lon) | `day`: 1-3 |
-| `get_radar` | NEXRAD radar metadata and imagery URLs | |
+| `get_radar` | NEXRAD radar with textual summary and clickable links | |
 | `get_briefing` | Combined briefing, the default for general weather questions | `detail`: standard or full |
 
 All location-aware tools accept optional `latitude`/`longitude`, falling back to `PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE`.
