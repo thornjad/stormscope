@@ -67,14 +67,14 @@ Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geoloc
 | Tool | Description | Key params |
 |------|-------------|------------|
 | `get_conditions` | Current conditions at a station | `detail`: standard or full |
-| `get_forecast` | Forecast in multiple formats | `mode`: daily, hourly, or raw; `days`; `hours` |
-| `get_alerts` | Active weather alerts | `severity_filter`; `detail`: standard or full |
+| `get_forecast` | Forecast in multiple formats | `mode`: daily, hourly, or raw; `days` (1-7, default 7); `hours` (1-48, default 24) |
+| `get_alerts` | Active weather alerts | `severity_filter`: Extreme, Severe, Moderate, or Minor; `detail`: standard or full |
 | `get_spc_outlook` | SPC outlook for a point | `outlook_type`: categorical, tornado, wind, or hail; `day`: 1-3 |
 | `get_national_outlook` | CONUS-wide risk areas (no lat/lon) | `day`: 1-3 |
 | `get_radar` | NEXRAD radar with textual summary and clickable links | |
 | `get_briefing` | Combined briefing, the default for general weather questions | `detail`: standard or full |
 
-All location-aware tools accept optional `latitude`/`longitude`, falling back to `PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE`.
+All location-aware tools accept optional `latitude`/`longitude`, falling back to the configured location (see [Location detection](#location-detection)).
 
 ### Example conversation
 
