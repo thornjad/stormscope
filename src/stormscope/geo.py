@@ -98,22 +98,43 @@ class Delegate: NSObject, CLLocationManagerDelegate {
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.startUpdatingLocation()
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+    }
+
+    func start() {
+        switch manager.authorizationStatus {
+        case .authorizedAlways:
+            manager.requestLocation()
+        case .notDetermined:
+            manager.requestAlwaysAuthorization()
+        default:
+            exit(1)
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
+        if m.authorizationStatus == .authorizedAlways {
+            m.requestLocation()
+        } else if m.authorizationStatus != .notDetermined {
+            exit(1)
+        }
     }
 
     func locationManager(_ m: CLLocationManager, didUpdateLocations locs: [CLLocation]) {
         guard let loc = locs.last else { return }
         print("\\(loc.coordinate.latitude),\\(loc.coordinate.longitude)")
+        fflush(stdout)
         exit(0)
     }
 
     func locationManager(_ m: CLLocationManager, didFailWithError error: Error) {
+        fputs("location error: \\(error.localizedDescription)\\n", stderr)
         exit(1)
     }
 }
 
 let d = Delegate()
+d.start()
 RunLoop.main.run(until: Date(timeIntervalSinceNow: 10))
 exit(1)
 """
