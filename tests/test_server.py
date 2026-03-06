@@ -39,6 +39,7 @@ class TestResolveLocation:
         mock_config.primary_latitude = None
         mock_config.primary_longitude = None
         mock_config.disable_auto_geolocation = False
+        mock_config.enable_corelocation = False
         with pytest.raises(ValueError, match="PRIMARY_LATITUDE"):
             await _resolve_location(None, None)
 
@@ -49,10 +50,13 @@ class TestResolveLocation:
         mock_config.primary_latitude = None
         mock_config.primary_longitude = None
         mock_config.disable_auto_geolocation = False
+        mock_config.enable_corelocation = False
         lat, lon = await _resolve_location(None, None)
         assert lat == 40.7
         assert lon == -74.0
-        mock_geo.assert_awaited_once_with(disabled=False)
+        mock_geo.assert_awaited_once_with(
+            disabled=False, enable_corelocation=False,
+        )
 
     @pytest.mark.asyncio
     @patch("stormscope.server.geolocate", new_callable=AsyncMock)
@@ -70,6 +74,9 @@ class TestResolveLocation:
         mock_config.primary_latitude = None
         mock_config.primary_longitude = None
         mock_config.disable_auto_geolocation = True
+        mock_config.enable_corelocation = False
         with pytest.raises(ValueError, match="PRIMARY_LATITUDE"):
             await _resolve_location(None, None)
-        mock_geo.assert_awaited_once_with(disabled=True)
+        mock_geo.assert_awaited_once_with(
+            disabled=True, enable_corelocation=False,
+        )

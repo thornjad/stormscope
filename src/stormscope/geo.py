@@ -3,6 +3,10 @@
 import asyncio
 import json
 import logging
+import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -84,30 +88,127 @@ def polygon_to_region(polygon) -> str:
     return f"near {abs(centroid.y):.1f}{lat_dir} {abs(centroid.x):.1f}{lon_dir}"
 
 
+_LOCATION_SWIFT_SRC = """\
+import CoreLocation
+import Foundation
+
+class Delegate: NSObject, CLLocationManagerDelegate {
+    let manager = CLLocationManager()
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.startUpdatingLocation()
+    }
+
+    func locationManager(_ m: CLLocationManager, didUpdateLocations locs: [CLLocation]) {
+        guard let loc = locs.last else { return }
+        print("\\(loc.coordinate.latitude),\\(loc.coordinate.longitude)")
+        exit(0)
+    }
+
+    func locationManager(_ m: CLLocationManager, didFailWithError error: Error) {
+        exit(1)
+    }
+}
+
+let d = Delegate()
+RunLoop.main.run(until: Date(timeIntervalSinceNow: 10))
+exit(1)
+"""
+
+_LOCATION_INFO_PLIST = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
+"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.thornjad.stormscope.location</string>
+    <key>CFBundleExecutable</key>
+    <string>StormscopeLocation</string>
+    <key>CFBundleName</key>
+    <string>StormscopeLocation</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSLocationUsageDescription</key>
+    <string>stormscope uses your location for local weather data.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>stormscope uses your location for local weather data.</string>
+</dict>
+</plist>
+"""
+
+
+def _ensure_location_helper() -> Path | None:
+    """build the CoreLocation helper .app bundle if needed, return app path."""
+    if sys.platform != "darwin":
+        return None
+
+    support = Path.home() / "Library" / "Application Support" / "stormscope"
+    app_dir = support / "StormscopeLocation.app"
+    contents = app_dir / "Contents"
+    macos = contents / "MacOS"
+    binary = macos / "StormscopeLocation"
+
+    if binary.exists():
+        return app_dir
+
+    try:
+        macos.mkdir(parents=True, exist_ok=True)
+        (contents / "Info.plist").write_text(_LOCATION_INFO_PLIST)
+        swift_src = contents / "main.swift"
+        swift_src.write_text(_LOCATION_SWIFT_SRC)
+        subprocess.run(
+            ["swiftc", str(swift_src), "-o", str(binary)],
+            check=True,
+            capture_output=True,
+        )
+        swift_src.unlink(missing_ok=True)
+        logger.info("compiled CoreLocation helper at %s", app_dir)
+        return app_dir
+    except Exception:
+        logger.debug("failed to build CoreLocation helper", exc_info=True)
+        return None
+
+
 _cl_location: tuple[float, float] | None = None
 _cl_location_fetched = False
 
 
 async def geolocate_corelocation() -> tuple[float, float] | None:
-    """locate via macOS CoreLocationCLI, cached for server lifetime."""
+    """locate via compiled macOS CoreLocation helper, cached for server lifetime."""
     global _cl_location, _cl_location_fetched
     if _cl_location_fetched:
         return _cl_location
 
     _cl_location_fetched = True
+    app_path = _ensure_location_helper()
+    if app_path is None:
+        _cl_location = None
+        return None
+
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix="stormscope_loc_")
+    os.close(tmp_fd)
     try:
         proc = await asyncio.create_subprocess_exec(
-            "CoreLocationCLI", "-format", "%latitude,%longitude", "-once", "yes",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            "open", "-W", "--background",
+            "--stdout", tmp_path,
+            str(app_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
-        lat_s, lon_s = stdout.decode().strip().split(",")
+        await asyncio.wait_for(proc.wait(), timeout=15.0)
+        output = Path(tmp_path).read_text().strip()
+        lat_s, lon_s = output.split(",")
         _cl_location = (float(lat_s), float(lon_s))
         logger.info("CoreLocation: %s, %s", lat_s, lon_s)
     except Exception:
         logger.debug("CoreLocation geolocation failed", exc_info=True)
         _cl_location = None
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
     return _cl_location
 
@@ -138,11 +239,14 @@ async def geolocate_ip() -> tuple[float, float] | None:
     return _ip_location
 
 
-async def geolocate(disabled: bool = False) -> tuple[float, float] | None:
-    """resolve location via CoreLocation then IP fallback."""
+async def geolocate(
+    disabled: bool = False, enable_corelocation: bool = False,
+) -> tuple[float, float] | None:
+    """resolve location via CoreLocation (if opted in) then IP fallback."""
     if disabled:
         return None
-    coords = await geolocate_corelocation()
-    if coords is not None:
-        return coords
+    if enable_corelocation:
+        coords = await geolocate_corelocation()
+        if coords is not None:
+            return coords
     return await geolocate_ip()

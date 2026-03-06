@@ -74,3 +74,28 @@ class TestFromEnv:
     def test_disable_auto_geolocation_false(self):
         cfg = Config.from_env()
         assert cfg.disable_auto_geolocation is False
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_enable_corelocation_default(self):
+        cfg = Config.from_env()
+        assert cfg.enable_corelocation is False
+
+    @patch.dict(os.environ, {"ENABLE_CORELOCATION": "true"}, clear=True)
+    def test_enable_corelocation_true(self):
+        cfg = Config.from_env()
+        assert cfg.enable_corelocation is True
+
+    @patch.dict(os.environ, {"ENABLE_CORELOCATION": "1"}, clear=True)
+    def test_enable_corelocation_one(self):
+        cfg = Config.from_env()
+        assert cfg.enable_corelocation is True
+
+    @patch.dict(os.environ, {"ENABLE_CORELOCATION": "YES"}, clear=True)
+    def test_enable_corelocation_yes(self):
+        cfg = Config.from_env()
+        assert cfg.enable_corelocation is True
+
+    @patch.dict(os.environ, {"ENABLE_CORELOCATION": "false"}, clear=True)
+    def test_enable_corelocation_false(self):
+        cfg = Config.from_env()
+        assert cfg.enable_corelocation is False

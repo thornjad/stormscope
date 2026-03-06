@@ -48,6 +48,7 @@ Or add to your Claude Code MCP config:
 | `PRIMARY_LATITUDE` | none | Default latitude when coordinates aren't passed explicitly |
 | `PRIMARY_LONGITUDE` | none | Default longitude when coordinates aren't passed explicitly |
 | `UNITS` | `us` | Unit system (`us` or `si`) |
+| `ENABLE_CORELOCATION` | `false` | Set to `true` to enable macOS CoreLocation (requires Xcode Command Line Tools) |
 | `DISABLE_AUTO_GEOLOCATION` | `false` | Set to `true` to disable CoreLocation and IP geolocation |
 
 ### Location detection
@@ -56,7 +57,7 @@ All location-aware tools accept optional `latitude` and `longitude` parameters. 
 
 1. **Explicit `latitude`/`longitude` params** — the AI can pass coordinates for any location
 2. **`PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE` env vars** — precise, recommended for your home location
-3. **macOS CoreLocation** via [CoreLocationCLI](https://github.com/fulldecent/corelocationcli) — optional, ~100m accuracy using WiFi positioning. Install with `brew install --cask corelocationcli` and grant location permission once when prompted
+3. **macOS CoreLocation** (opt-in) — set `ENABLE_CORELOCATION=true`, requires Xcode Command Line Tools, ~100m WiFi-based accuracy, prompts for location permission on first use. Compiles a small Swift helper into `~/Library/Application Support/stormscope/`
 4. **IP geolocation** via [ipinfo.io](https://ipinfo.io) — automatic, city-level accuracy, one request per session
 
 Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geolocation (tiers 3 and 4). With auto-geolocation disabled and no env vars or explicit params, tools return an error.

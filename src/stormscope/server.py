@@ -50,7 +50,10 @@ async def _resolve_location(
     lon = longitude if longitude is not None else config.primary_longitude
     if lat is not None and lon is not None:
         return lat, lon
-    coords = await geolocate(disabled=config.disable_auto_geolocation)
+    coords = await geolocate(
+        disabled=config.disable_auto_geolocation,
+        enable_corelocation=config.enable_corelocation,
+    )
     if coords is not None:
         return coords
     raise ValueError(
