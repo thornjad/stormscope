@@ -48,8 +48,18 @@ Or add to your Claude Code MCP config:
 | `PRIMARY_LATITUDE` | none | Default latitude when coordinates aren't passed explicitly |
 | `PRIMARY_LONGITUDE` | none | Default longitude when coordinates aren't passed explicitly |
 | `UNITS` | `us` | Unit system (`us` or `si`) |
+| `DISABLE_AUTO_GEOLOCATION` | `false` | Set to `true` to disable CoreLocation and IP geolocation |
 
-All location-aware tools accept optional `latitude` and `longitude` parameters. When omitted, they fall back to the primary location. If neither is available, the server approximates your location via IP geolocation (a single request to [ipinfo.io](https://ipinfo.io) per server session). City-level accuracy is sufficient for NWS grid resolution. For precise control, set the env vars above.
+### Location detection
+
+All location-aware tools accept optional `latitude` and `longitude` parameters. When omitted, the server resolves location through a fallback chain:
+
+1. **Explicit `latitude`/`longitude` params** — the AI can pass coordinates for any location
+2. **`PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE` env vars** — precise, recommended for your home location
+3. **macOS CoreLocation** via [CoreLocationCLI](https://github.com/fulldecent/corelocationcli) — optional, ~100m accuracy using WiFi positioning. Install with `brew install --cask corelocationcli` and grant location permission once when prompted
+4. **IP geolocation** via [ipinfo.io](https://ipinfo.io) — automatic, city-level accuracy, one request per session
+
+Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geolocation (tiers 3 and 4). With auto-geolocation disabled and no env vars or explicit params, tools return an error.
 
 ## Tools
 
