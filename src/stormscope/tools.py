@@ -16,6 +16,13 @@ _spc = SPCClient()
 _iem = IEMClient()
 
 
+async def shutdown():
+    """close all HTTP clients."""
+    await _nws.close()
+    await _spc.close()
+    await _iem.close()
+
+
 def _is_si() -> bool:
     return config.units == "si"
 
@@ -79,7 +86,7 @@ def _fmt_pressure(inhg: float | None, pascals: float | None = None) -> str:
 
 def _fmt_gust(speed: float | None) -> str:
     if speed is None:
-        return "None"
+        return "calm"
     unit = "km/h" if _is_si() else "mph"
     return f"{round(speed)} {unit}"
 
@@ -127,7 +134,8 @@ async def get_conditions(
 
         temp_f = c_to_f(temp_c)
         feels_like_c = heat_index_c if heat_index_c is not None else wind_chill_c
-        feels_like_f = c_to_f(feels_like_c) or temp_f
+        fl = c_to_f(feels_like_c)
+        feels_like_f = fl if fl is not None else temp_f
 
         wind_speed = wind_kmh if _is_si() else kmh_to_mph(wind_kmh)
         gust_speed = gust_kmh if _is_si() else kmh_to_mph(gust_kmh)

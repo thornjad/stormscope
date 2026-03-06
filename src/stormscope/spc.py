@@ -1,5 +1,6 @@
 """NOAA Storm Prediction Center outlook client."""
 
+import asyncio
 import logging
 
 import httpx
@@ -37,14 +38,16 @@ class SPCClient:
     def __init__(self):
         self._cache = TTLCache()
         self._client: httpx.AsyncClient | None = None
+        self._client_lock = asyncio.Lock()
 
     async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                headers={"User-Agent": config.user_agent},
-                timeout=30.0,
-            )
-        return self._client
+        async with self._client_lock:
+            if self._client is None or self._client.is_closed:
+                self._client = httpx.AsyncClient(
+                    headers={"User-Agent": config.user_agent},
+                    timeout=30.0,
+                )
+            return self._client
 
     async def _fetch_geojson(self, url: str) -> dict:
         client = await self._get_client()
@@ -54,7 +57,7 @@ class SPCClient:
 
     async def close(self):
         if self._client and not self._client.is_closed:
-            await self._client.close()
+            await self._client.aclose()
 
     async def get_categorical_outlook(self, day: int = 1) -> dict:
         cache_key = f"spc_cat_day{day}"

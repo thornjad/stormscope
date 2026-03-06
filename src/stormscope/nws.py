@@ -5,6 +5,8 @@ import logging
 
 import httpx
 
+_TTL_STATIONS = 86400  # 24h
+
 from stormscope.cache import TTLCache
 from stormscope.config import config
 
@@ -27,18 +29,20 @@ class NWSClient:
     def __init__(self):
         self._cache = TTLCache()
         self._client: httpx.AsyncClient | None = None
+        self._client_lock = asyncio.Lock()
 
     async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
+        async with self._client_lock:
+            if self._client is None or self._client.is_closed:
+                self._client = httpx.AsyncClient(
                 base_url=BASE_URL,
                 headers={
                     "User-Agent": config.user_agent,
                     "Accept": "application/geo+json",
                 },
                 timeout=30.0,
-            )
-        return self._client
+                )
+            return self._client
 
     async def _request(self, url: str) -> dict:
         """Make a GET request with retry logic for 5xx and rate limits."""
@@ -109,8 +113,20 @@ class NWSClient:
 
     async def get_stations(self, url: str) -> list[dict]:
         """Fetch station list from a points-provided URL."""
-        data = await self._request(url)
-        return [f["properties"] for f in data.get("features", [])]
+        key = f"stations:{url}"
+        cached, is_stale = await self._cache.get(key)
+        if cached is not None and not is_stale:
+            return cached
+
+        try:
+            data = await self._request(url)
+            result = [f["properties"] for f in data.get("features", [])]
+            await self._cache.set(key, result, _TTL_STATIONS)
+            return result
+        except Exception:
+            if cached is not None:
+                return cached
+            raise
 
     async def get_latest_observation(self, station_id: str) -> dict:
         """Fetch latest observation for a station."""
@@ -203,4 +219,4 @@ class NWSClient:
 
     async def close(self):
         if self._client and not self._client.is_closed:
-            await self._client.close()
+            await self._client.aclose()

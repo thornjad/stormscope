@@ -1,5 +1,6 @@
 """IEM radar metadata: products, latest scans, and imagery URLs."""
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -17,14 +18,16 @@ class IEMClient:
     def __init__(self):
         self._cache = TTLCache()
         self._client: httpx.AsyncClient | None = None
+        self._client_lock = asyncio.Lock()
 
     async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                headers={"User-Agent": "stormscope"},
-                timeout=15.0,
-            )
-        return self._client
+        async with self._client_lock:
+            if self._client is None or self._client.is_closed:
+                self._client = httpx.AsyncClient(
+                    headers={"User-Agent": "stormscope"},
+                    timeout=15.0,
+                )
+            return self._client
 
     async def _request(self, url: str) -> dict:
         client = await self._get_client()
@@ -115,4 +118,4 @@ class IEMClient:
 
     async def close(self):
         if self._client and not self._client.is_closed:
-            await self._client.close()
+            await self._client.aclose()

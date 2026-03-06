@@ -14,6 +14,8 @@ Real-time US weather data for AI assistants via MCP. Uses the free NWS API, NOAA
 
 A `detail` parameter on shared tools lets casual users get simple output while enthusiasts get the full picture.
 
+Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
+
 ## Configuration
 
 ```bash
@@ -105,6 +107,15 @@ US locations only. The NWS API covers the 50 states, DC, and US territories. Req
 ## Disclaimer
 
 This application is for informational and educational purposes only. It is not intended for use in life-threatening weather conditions or emergency situations, and should not be relied on as a sole source of weather information. Do not rely on this application for critical weather decisions. Always consult official weather services and emergency broadcasts during severe weather. This application may not provide real-time or accurate weather information. The authors shall not be held liable in the event of injury, death, or property damage resulting from reliance on this software. See the included [license](./LICENSE) for specific language limiting liability.
+
+## Development
+
+```bash
+git clone https://github.com/thornjad/stormscope.git
+cd stormscope
+uv sync --group dev
+uv run python -m pytest
+```
 
 ## License
 

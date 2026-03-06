@@ -89,7 +89,7 @@ class TestGetConditions:
         from stormscope.tools import get_conditions
         result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
 
-        assert result["wind_gust"] == "None"
+        assert result["wind_gust"] == "calm"
 
     @patch("stormscope.tools._nws")
     async def test_error_for_non_us(self, mock_nws):

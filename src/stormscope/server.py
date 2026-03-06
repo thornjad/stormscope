@@ -1,12 +1,22 @@
 """stormscope MCP server."""
 
+from contextlib import asynccontextmanager
+
 from fastmcp import FastMCP
 
 from stormscope import tools
 from stormscope.config import config
 
+
+@asynccontextmanager
+async def _lifespan(app):
+    yield
+    await tools.shutdown()
+
+
 mcp = FastMCP(
     "stormscope",
+    lifespan=_lifespan,
     instructions=(
         "You have access to real-time US weather data via the stormscope tools. "
         "At the start of each conversation, if a primary location is configured, "

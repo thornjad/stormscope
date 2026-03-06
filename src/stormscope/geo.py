@@ -5,18 +5,21 @@ from pathlib import Path
 
 from shapely.geometry import Point, shape
 
-_states: list[dict] | None = None
+_states: list[tuple[str, object]] | None = None
 _DATA_PATH = Path(__file__).resolve().parent / "data" / "us_states.json"
 
 
-def load_states() -> list[dict]:
-    """load us_states.json, cached in module-level variable."""
+def load_states() -> list[tuple[str, object]]:
+    """load us_states.json with pre-computed shapely geometries."""
     global _states
     if _states is not None:
         return _states
     with open(_DATA_PATH) as f:
         data = json.load(f)
-    _states = data["features"]
+    _states = [
+        (feat["properties"]["NAME"], shape(feat["geometry"]))
+        for feat in data["features"]
+    ]
     return _states
 
 
@@ -55,21 +58,18 @@ def polygon_to_region(polygon) -> str:
     centroid = polygon.centroid
     states = load_states()
 
-    for feat in states:
-        state_geom = shape(feat["geometry"])
+    for name, state_geom in states:
         if state_geom.contains(centroid):
-            name = feat["properties"]["NAME"]
             pos = _cardinal_position(centroid, state_geom.bounds)
             return f"{pos} {name}"
 
     best_dist = float("inf")
     best_name = None
-    for feat in states:
-        state_geom = shape(feat["geometry"])
+    for name, state_geom in states:
         d = state_geom.distance(centroid)
         if d < best_dist:
             best_dist = d
-            best_name = feat["properties"]["NAME"]
+            best_name = name
 
     if best_name and best_dist < 2.0:
         return f"near {best_name}"
