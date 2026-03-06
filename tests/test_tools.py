@@ -326,9 +326,12 @@ class TestGetNationalOutlook:
 class TestGetRadar:
     @patch("stormscope.tools._iem")
     @patch("stormscope.tools._nws")
-    async def test_returns_radar_data(self, mock_nws, mock_iem):
+    async def test_returns_enriched_radar_data(self, mock_nws, mock_iem):
         m = _mock_nws()
         mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+        mock_nws.get_hourly_forecast = m.get_hourly_forecast
         mock_iem.get_radar_info = AsyncMock(return_value=MOCK_RADAR_RESPONSE)
 
         from stormscope.tools import get_radar
@@ -336,8 +339,59 @@ class TestGetRadar:
 
         assert "error" not in result
         assert result["station_id"] == "KMPX"
-        assert "imagery_urls" in result
-        mock_iem.get_radar_info.assert_awaited_once_with("KMPX")
+        assert "summary" in result
+        assert "Mostly Sunny" in result["summary"]
+        assert result["current_weather"] == "Mostly Sunny"
+        assert result["cloud_cover"] == "FEW"
+        assert "links" in result
+        assert "regional_composite" in result["links"]
+        assert "local_radar" in result["links"]
+        assert "imagery_urls" not in result
+
+    @patch("stormscope.tools._iem")
+    @patch("stormscope.tools._nws")
+    async def test_radar_with_precipitation(self, mock_nws, mock_iem):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_hourly_forecast = m.get_hourly_forecast
+
+        rainy_obs = dict(OBS_PROPS)
+        rainy_obs["textDescription"] = "Light Rain"
+        rainy_obs["presentWeather"] = [
+            {"weather": "Rain", "intensity": "Light"},
+        ]
+        rainy_obs["cloudLayers"] = [
+            {"base": {"value": 900, "unitCode": "wmoUnit:m"}, "amount": "OVC"},
+        ]
+        mock_nws.get_latest_observation = AsyncMock(return_value=rainy_obs)
+        mock_iem.get_radar_info = AsyncMock(return_value=MOCK_RADAR_RESPONSE)
+
+        from stormscope.tools import get_radar
+        result = await get_radar(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert result["current_weather"] == "Light Rain"
+        assert result["cloud_cover"] == "OVC"
+        assert "Rain" in result["summary"]
+        assert "OVC" in result["summary"]
+
+    @patch("stormscope.tools._iem")
+    @patch("stormscope.tools._nws")
+    async def test_radar_degrades_without_obs(self, mock_nws, mock_iem):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = AsyncMock(return_value=[])
+        mock_nws.get_hourly_forecast = AsyncMock(side_effect=Exception("API down"))
+        mock_iem.get_radar_info = AsyncMock(return_value=MOCK_RADAR_RESPONSE)
+
+        from stormscope.tools import get_radar
+        result = await get_radar(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert result["station_id"] == "KMPX"
+        assert "summary" in result
+        assert "links" in result
 
     @patch("stormscope.tools._nws")
     async def test_error_for_non_us(self, mock_nws):
@@ -391,6 +445,7 @@ class TestGetBriefing:
         mock_nws.get_stations = m.get_stations
         mock_nws.get_latest_observation = m.get_latest_observation
         mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_hourly_forecast = m.get_hourly_forecast
         mock_nws.get_alerts = m.get_alerts
 
         mock_spc.get_spc_outlook = AsyncMock(return_value={
@@ -414,6 +469,8 @@ class TestGetBriefing:
         assert "radar" in result
         assert "national_day1" in result
         assert result["radar"]["station_id"] == "KMPX"
+        assert "summary" in result["radar"]
+        assert "links" in result["radar"]
 
     @patch("stormscope.tools._spc")
     @patch("stormscope.tools._nws")
@@ -449,6 +506,7 @@ class TestGetBriefing:
         mock_nws.get_stations = m.get_stations
         mock_nws.get_latest_observation = m.get_latest_observation
         mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_hourly_forecast = m.get_hourly_forecast
         mock_nws.get_alerts = m.get_alerts
 
         mock_spc.get_spc_outlook = AsyncMock(return_value={
