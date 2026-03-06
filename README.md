@@ -2,16 +2,16 @@
 
 Real-time US weather data for AI assistants via MCP. Uses the free NWS API, NOAA Storm Prediction Center data, and Iowa Environmental Mesonet radar.
 
-US locations only -- covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return a clear error. The SPC national outlook covers the contiguous US only.
+US locations only. Covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return a clear error. The SPC national outlook covers the contiguous US only.
 
 ## What it does
 
 Most tools support a `detail` parameter: **standard** gives a clean summary, **full** adds the technical depth (METAR, VTEC codes, polygon geometry, probabilistic outlooks).
 
-- Current conditions -- temperature, wind, humidity, sky, pressure
-- Forecast -- daily narrative periods, hourly, or raw gridpoint time-value series
+- Current conditions: temperature, wind, humidity, sky, pressure
+- Forecast in daily narrative periods, hourly, or raw gridpoint time-value series
 - Active weather alerts with severity filtering
-- SPC severe weather outlook -- categorical risk or probabilistic tornado/wind/hail
+- SPC severe weather outlook, both categorical risk and probabilistic tornado/wind/hail
 - National severe outlook with human-readable region descriptions
 - NEXRAD radar station metadata and imagery URLs
 - Combined briefing that pulls everything together and adapts to the situation
@@ -60,14 +60,14 @@ All location-aware tools accept optional `latitude` and `longitude` parameters. 
 | `get_alerts` | Active weather alerts | `severity_filter`; `detail`: standard or full |
 | `get_spc_outlook` | SPC outlook for a point | `outlook_type`: categorical, tornado, wind, or hail; `day`: 1-3 |
 | `get_national_outlook` | CONUS-wide risk areas (no lat/lon) | `day`: 1-3 |
-| `get_radar` | NEXRAD radar metadata and imagery URLs | -- |
-| `get_briefing` | Combined briefing -- the default for general weather questions | `detail`: standard or full |
+| `get_radar` | NEXRAD radar metadata and imagery URLs | |
+| `get_briefing` | Combined briefing, the default for general weather questions | `detail`: standard or full |
 
 All location-aware tools accept optional `latitude`/`longitude`, falling back to `PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE`.
 
 ### Example conversation
 
-These examples show how an AI assistant might present stormscope data -- the tools return structured JSON, and the assistant formats it for the user.
+These examples show how an AI assistant might present stormscope data. The tools return structured JSON, and the assistant formats it for the user.
 
 **"What's the weather?"** (uses `get_briefing`):
 
@@ -94,9 +94,9 @@ Day 2: TSTM, Day 3: NONE
 
 Create `.claude/skills/` skills for common patterns:
 
-- **Morning briefing**: `get_briefing detail=full` -- full picture to start the day
-- **Quick check**: `get_conditions` -- just current conditions
-- **Evening review**: `get_forecast mode=daily days=2` -- tonight and tomorrow
+- **Morning briefing**: `get_briefing detail=full` for a full picture to start the day
+- **Quick check**: `get_conditions` for just current conditions
+- **Evening review**: `get_forecast mode=daily days=2` for tonight and tomorrow
 - **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_radar` + `get_alerts detail=full`
 
 ## Disclaimer
