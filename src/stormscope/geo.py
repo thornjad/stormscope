@@ -1,9 +1,13 @@
-"""geographic utilities for polygon-to-region descriptions."""
+"""geographic utilities for polygon-to-region descriptions and IP geolocation."""
 
 import json
+import logging
 from pathlib import Path
 
+import httpx
 from shapely.geometry import Point, shape
+
+logger = logging.getLogger(__name__)
 
 _states: list[tuple[str, object]] | None = None
 _DATA_PATH = Path(__file__).resolve().parent / "data" / "us_states.json"
@@ -77,3 +81,29 @@ def polygon_to_region(polygon) -> str:
     lat_dir = "N" if centroid.y >= 0 else "S"
     lon_dir = "W" if centroid.x < 0 else "E"
     return f"near {abs(centroid.y):.1f}{lat_dir} {abs(centroid.x):.1f}{lon_dir}"
+
+
+_ip_location: tuple[float, float] | None = None
+_ip_location_fetched = False
+
+
+async def geolocate_ip() -> tuple[float, float] | None:
+    """approximate location via IP geolocation, cached for server lifetime."""
+    global _ip_location, _ip_location_fetched
+    if _ip_location_fetched:
+        return _ip_location
+
+    _ip_location_fetched = True
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get("https://ipinfo.io/json", timeout=5.0)
+            resp.raise_for_status()
+            loc = resp.json()["loc"]
+            lat_s, lon_s = loc.split(",")
+            _ip_location = (float(lat_s), float(lon_s))
+            logger.info("IP geolocation: %s, %s", lat_s, lon_s)
+    except Exception:
+        logger.debug("IP geolocation failed", exc_info=True)
+        _ip_location = None
+
+    return _ip_location

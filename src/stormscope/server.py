@@ -6,6 +6,7 @@ from fastmcp import FastMCP
 
 from stormscope import tools
 from stormscope.config import config
+from stormscope.geo import geolocate_ip
 
 
 @asynccontextmanager
@@ -42,18 +43,21 @@ mcp = FastMCP(
 )
 
 
-def _resolve_location(
+async def _resolve_location(
     latitude: float | None, longitude: float | None,
 ) -> tuple[float, float]:
     lat = latitude if latitude is not None else config.primary_latitude
     lon = longitude if longitude is not None else config.primary_longitude
-    if lat is None or lon is None:
-        raise ValueError(
-            "no location provided and no primary location configured. "
-            "Set PRIMARY_LATITUDE and PRIMARY_LONGITUDE environment variables "
-            "or pass latitude and longitude explicitly."
-        )
-    return lat, lon
+    if lat is not None and lon is not None:
+        return lat, lon
+    coords = await geolocate_ip()
+    if coords is not None:
+        return coords
+    raise ValueError(
+        "no location provided and no primary location configured. "
+        "Set PRIMARY_LATITUDE and PRIMARY_LONGITUDE environment variables "
+        "or pass latitude and longitude explicitly."
+    )
 
 
 @mcp.tool()
@@ -72,7 +76,7 @@ async def get_conditions(
     Omit lat/lon to use configured primary location.
     """
     try:
-        lat, lon = _resolve_location(latitude, longitude)
+        lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
     return await tools.get_conditions(lat, lon, detail)
@@ -98,7 +102,7 @@ async def get_forecast(
     Omit lat/lon to use configured primary location.
     """
     try:
-        lat, lon = _resolve_location(latitude, longitude)
+        lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
     return await tools.get_forecast(lat, lon, mode, days, hours)
@@ -122,7 +126,7 @@ async def get_alerts(
     Omit lat/lon to use configured primary location.
     """
     try:
-        lat, lon = _resolve_location(latitude, longitude)
+        lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
     return await tools.get_alerts(lat, lon, severity_filter, detail)
@@ -146,7 +150,7 @@ async def get_spc_outlook(
     Omit lat/lon to use configured primary location.
     """
     try:
-        lat, lon = _resolve_location(latitude, longitude)
+        lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
     return await tools.get_spc_outlook(lat, lon, outlook_type, day)
@@ -183,7 +187,7 @@ async def get_radar(
     Omit lat/lon to use configured primary location.
     """
     try:
-        lat, lon = _resolve_location(latitude, longitude)
+        lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
     return await tools.get_radar(lat, lon)
@@ -207,7 +211,7 @@ async def get_briefing(
     Omit lat/lon to use configured primary location.
     """
     try:
-        lat, lon = _resolve_location(latitude, longitude)
+        lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
     return await tools.get_briefing(lat, lon, detail)
