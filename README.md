@@ -80,7 +80,7 @@ Severe Weather: Marginal Risk (MRGL) - isolated severe storms possible.
 Alerts: None active.
 ```
 
-**"Give me the full picture"** (uses `get_briefing detail=full`):
+**"What's the severe weather outlook?"** (uses `get_briefing detail=full`):
 
 ```
 ...plus dewpoint 50F, cloud layers FEW at 3000m, METAR: KMSP 041200Z...
