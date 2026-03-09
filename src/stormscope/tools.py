@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import math
 
 from stormscope.config import config
 from stormscope.iem import IEMClient
@@ -10,6 +11,7 @@ from stormscope.openmeteo import OpenMeteoClient
 from stormscope.spc import SPCClient
 from stormscope.units import c_to_f, degrees_to_cardinal, gpm_to_dam, kmh_to_mph, m_to_miles, ms_to_kt, pa_to_inhg
 from stormscope.vorticity import compute_vorticity
+from stormscope.wpc import WPCClient, FRONT_TYPES, CENTER_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,7 @@ _nws = NWSClient()
 _spc = SPCClient()
 _iem = IEMClient()
 _openmeteo = OpenMeteoClient()
+_wpc = WPCClient()
 
 
 async def shutdown():
@@ -25,6 +28,7 @@ async def shutdown():
     await _spc.close()
     await _iem.close()
     await _openmeteo.close()
+    await _wpc.close()
 
 
 def _is_si() -> bool:
@@ -634,3 +638,195 @@ async def get_upper_air(latitude: float, longitude: float) -> dict:
     except Exception as exc:
         logger.exception("error fetching upper-air data")
         return {"error": f"failed to fetch upper-air data: {exc}"}
+
+
+_EARTH_RADIUS_KM = 6371.0
+_KM_PER_MI = 1.609344
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    rlat1, rlon1 = math.radians(lat1), math.radians(lon1)
+    rlat2, rlon2 = math.radians(lat2), math.radians(lon2)
+    dlat = rlat2 - rlat1
+    dlon = rlon2 - rlon1
+    a = math.sin(dlat / 2) ** 2 + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2
+    return _EARTH_RADIUS_KM * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    rlat1, rlon1 = math.radians(lat1), math.radians(lon1)
+    rlat2, rlon2 = math.radians(lat2), math.radians(lon2)
+    dlon = rlon2 - rlon1
+    x = math.sin(dlon) * math.cos(rlat2)
+    y = math.cos(rlat1) * math.sin(rlat2) - math.sin(rlat1) * math.cos(rlat2) * math.cos(dlon)
+    return (math.degrees(math.atan2(x, y)) + 360) % 360
+
+
+def _nearest_point_on_line(lat: float, lon: float, coords: list) -> tuple[float, float, float]:
+    """find closest point on a polyline to (lat, lon). returns (nearest_lat, nearest_lon, dist_km)."""
+    best_dist = float("inf")
+    best_pt = (coords[0][1], coords[0][0])
+
+    for i in range(len(coords) - 1):
+        ax, ay = coords[i][0], coords[i][1]
+        bx, by = coords[i + 1][0], coords[i + 1][1]
+        # project point onto segment in lon/lat space (approximate at
+        # high latitudes due to longitude compression, but adequate for
+        # CONUS where cos(lat) ~ 0.65-0.91)
+        dx, dy = bx - ax, by - ay
+        if dx == 0 and dy == 0:
+            px, py = ax, ay
+        else:
+            t = max(0, min(1, ((lon - ax) * dx + (lat - ay) * dy) / (dx * dx + dy * dy)))
+            px, py = ax + t * dx, ay + t * dy
+        d = _haversine_km(lat, lon, py, px)
+        if d < best_dist:
+            best_dist = d
+            best_pt = (py, px)
+
+    # single-point linestring: loop didn't execute, compute distance to the only point
+    if best_dist == float("inf"):
+        best_dist = _haversine_km(lat, lon, best_pt[0], best_pt[1])
+
+    return best_pt[0], best_pt[1], best_dist
+
+
+def _which_side_of_front(lat: float, lon: float, coords: list, front_type: str) -> str | None:
+    """determine if point is on warm or cold side of a front.
+
+    uses cross product of front direction with point-to-front vector.
+    WPC convention: cold air is to the left of the front direction for cold fronts.
+    positive cross product = left side = cold side.
+
+    returns "warm side (ahead of front)" or "cold side (behind front)" for cold fronts,
+    or None for non-cold fronts.
+    """
+    if front_type != "cold":
+        return None
+
+    # find the nearest segment
+    best_i = 0
+    best_dist = float("inf")
+    for i in range(len(coords) - 1):
+        ax, ay = coords[i][0], coords[i][1]
+        bx, by = coords[i + 1][0], coords[i + 1][1]
+        mx, my = (ax + bx) / 2, (ay + by) / 2
+        d = _haversine_km(lat, lon, my, mx)
+        if d < best_dist:
+            best_dist = d
+            best_i = i
+
+    ax, ay = coords[best_i][0], coords[best_i][1]
+    bx, by = coords[best_i + 1][0], coords[best_i + 1][1]
+    # front direction vector
+    fdx, fdy = bx - ax, by - ay
+    # vector from segment start to point
+    pdx, pdy = lon - ax, lat - ay
+    cross = fdx * pdy - fdy * pdx
+
+    if cross > 0:
+        return "cold side (behind front)"
+    return "warm side (ahead of front)"
+
+
+def _fmt_distance(km: float) -> str:
+    if _is_si():
+        return f"{round(km)} km"
+    mi = km / _KM_PER_MI
+    return f"{round(mi)} mi"
+
+
+async def get_surface_analysis(
+    latitude: float, longitude: float, day: int = 1, detail: str = "standard",
+) -> dict:
+    """get WPC surface analysis with fronts and pressure centers."""
+    if day < 1 or day > 3:
+        return {"error": f"invalid day {day}, must be 1-3"}
+    try:
+        fronts_data, centers_data = await _wpc.get_surface_analysis(day)
+
+        parsed_fronts = []
+        for feat in fronts_data.get("features", []):
+            props = feat.get("properties", {})
+            feat_type = FRONT_TYPES.get(props.get("feat", ""))
+            if feat_type is None:
+                continue
+            geom = feat.get("geometry", {})
+            geom_type = geom.get("type", "")
+            raw_coords = geom.get("coordinates", [])
+            if not raw_coords:
+                continue
+            # flatten MultiLineString into a single coordinate list
+            if geom_type == "MultiLineString":
+                coords = [pt for segment in raw_coords for pt in segment]
+            else:
+                coords = raw_coords
+            if not coords:
+                continue
+            nlat, nlon, dist = _nearest_point_on_line(latitude, longitude, coords)
+            bearing = _bearing_deg(latitude, longitude, nlat, nlon)
+            cardinal = degrees_to_cardinal(bearing)
+            entry = {
+                "type": feat_type,
+                "distance": _fmt_distance(dist),
+                "distance_km": round(dist, 1),
+                "bearing": cardinal,
+            }
+            side = _which_side_of_front(latitude, longitude, coords, feat_type)
+            if side:
+                entry["position"] = side
+            if detail == "full":
+                entry["nearest_point"] = {"latitude": round(nlat, 4), "longitude": round(nlon, 4)}
+                entry["geometry_type"] = geom_type
+            parsed_fronts.append(entry)
+
+        parsed_centers = []
+        for feat in centers_data.get("features", []):
+            props = feat.get("properties", {})
+            center_type = CENTER_TYPES.get(props.get("feat", ""))
+            if center_type is None:
+                continue
+            geom = feat.get("geometry", {})
+            coords = geom.get("coordinates", [])
+            if not coords or len(coords) < 2:
+                continue
+            clat, clon = coords[1], coords[0]
+            dist = _haversine_km(latitude, longitude, clat, clon)
+            bearing = _bearing_deg(latitude, longitude, clat, clon)
+            cardinal = degrees_to_cardinal(bearing)
+            entry = {
+                "type": center_type,
+                "distance": _fmt_distance(dist),
+                "distance_km": round(dist, 1),
+                "bearing": cardinal,
+            }
+            if detail == "full":
+                entry["coordinates"] = {"latitude": round(clat, 4), "longitude": round(clon, 4)}
+            parsed_centers.append(entry)
+
+        parsed_fronts.sort(key=lambda f: f["distance_km"])
+        parsed_centers.sort(key=lambda c: c["distance_km"])
+
+        # build location summary from nearest cold front
+        location_summary = None
+        for f in parsed_fronts:
+            if f["type"] == "cold" and f.get("position"):
+                location_summary = f"{f['position']} — cold front {f['distance']} to the {f['bearing']}"
+                break
+
+        result: dict = {
+            "day": day,
+        }
+        if location_summary:
+            result["location_summary"] = location_summary
+        if detail == "standard":
+            result["nearest_fronts"] = parsed_fronts[:5]
+            result["nearest_pressure_centers"] = parsed_centers[:4]
+        else:
+            result["nearest_fronts"] = parsed_fronts
+            result["nearest_pressure_centers"] = parsed_centers
+
+        return result
+    except Exception as exc:
+        logger.exception("error fetching surface analysis")
+        return {"error": f"failed to fetch surface analysis: {exc}"}

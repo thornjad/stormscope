@@ -272,6 +272,65 @@ MOCK_UPPER_AIR_RAW = {
     "west": _make_upper_air_point(44.98, -94.27, base_speed=19.0, direction=260.0),
 }
 
+# cold front running NW-SE through Minneapolis area, warm front to the south
+MOCK_WPC_FRONTS = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {"feat": "Cold Front Valid"},
+            "geometry": {
+                "type": "MultiLineString",
+                "coordinates": [
+                    [
+                        [-95.0, 47.0],
+                        [-94.0, 46.0],
+                        [-93.0, 45.0],
+                        [-92.0, 44.0],
+                    ],
+                ],
+            },
+        },
+        {
+            "type": "Feature",
+            "properties": {"feat": "Warm Front Valid"},
+            "geometry": {
+                "type": "MultiLineString",
+                "coordinates": [
+                    [
+                        [-95.0, 43.0],
+                        [-93.0, 43.5],
+                        [-91.0, 44.0],
+                    ],
+                ],
+            },
+        },
+    ],
+}
+
+# low to the NW, high to the SE — realistic warm sector setup
+MOCK_WPC_PRESSURE_CENTERS = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {"feat": "Low Valid"},
+            "geometry": {
+                "type": "Point",
+                "coordinates": [-96.0, 48.0],
+            },
+        },
+        {
+            "type": "Feature",
+            "properties": {"feat": "High Valid"},
+            "geometry": {
+                "type": "Point",
+                "coordinates": [-88.0, 40.0],
+            },
+        },
+    ],
+}
+
 MOCK_RADAR_RESPONSE = {
     "station_id": "KMPX",
     "available_products": ["N0B", "N0S"],

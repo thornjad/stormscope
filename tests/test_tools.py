@@ -1,4 +1,4 @@
-"""Tests for the 8 tool functions."""
+"""Tests for the 9 tool functions."""
 
 from unittest.mock import AsyncMock, patch
 
@@ -19,6 +19,8 @@ from tests.conftest import (
     MOCK_SPC_OUTLOOK,
     MOCK_STATIONS_RESPONSE,
     MOCK_UPPER_AIR_RAW,
+    MOCK_WPC_FRONTS,
+    MOCK_WPC_PRESSURE_CENTERS,
 )
 
 
@@ -732,3 +734,256 @@ class TestComputeTrend:
     def test_all_zeros(self):
         from stormscope.tools import _compute_trend
         assert _compute_trend([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]) == "steady"
+
+
+class TestHaversine:
+    def test_known_distance(self):
+        from stormscope.tools import _haversine_km
+        # Minneapolis to Chicago is ~571 km
+        d = _haversine_km(44.9778, -93.2650, 41.8781, -87.6298)
+        assert 565 < d < 580
+
+    def test_same_point(self):
+        from stormscope.tools import _haversine_km
+        assert _haversine_km(45.0, -93.0, 45.0, -93.0) == 0.0
+
+
+class TestBearing:
+    def test_due_north(self):
+        from stormscope.tools import _bearing_deg
+        b = _bearing_deg(44.0, -93.0, 46.0, -93.0)
+        assert abs(b - 0) < 1
+
+    def test_due_east(self):
+        from stormscope.tools import _bearing_deg
+        b = _bearing_deg(44.0, -93.0, 44.0, -91.0)
+        assert 85 < b < 95
+
+
+class TestGetSurfaceAnalysis:
+    @patch("stormscope.tools._wpc")
+    async def test_standard_detail(self, mock_wpc):
+        mock_wpc.get_surface_analysis = AsyncMock(
+            return_value=(MOCK_WPC_FRONTS, MOCK_WPC_PRESSURE_CENTERS),
+        )
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert result["day"] == 1
+        assert len(result["nearest_fronts"]) == 2
+        assert len(result["nearest_pressure_centers"]) == 2
+        assert result["nearest_fronts"][0]["type"] in ("cold", "warm")
+        assert "distance" in result["nearest_fronts"][0]
+        assert "bearing" in result["nearest_fronts"][0]
+        # should not have full-detail fields
+        assert "nearest_point" not in result["nearest_fronts"][0]
+
+    @patch("stormscope.tools._wpc")
+    async def test_full_detail(self, mock_wpc):
+        mock_wpc.get_surface_analysis = AsyncMock(
+            return_value=(MOCK_WPC_FRONTS, MOCK_WPC_PRESSURE_CENTERS),
+        )
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, detail="full")
+
+        assert "error" not in result
+        # full detail returns all fronts unsliced with extra fields
+        assert len(result["nearest_fronts"]) == 2
+        assert len(result["nearest_pressure_centers"]) == 2
+        front = result["nearest_fronts"][0]
+        assert "nearest_point" in front
+        assert "geometry_type" in front
+        center = result["nearest_pressure_centers"][0]
+        assert "coordinates" in center
+
+    @patch("stormscope.tools._wpc")
+    async def test_warm_sector_detection(self, mock_wpc):
+        mock_wpc.get_surface_analysis = AsyncMock(
+            return_value=(MOCK_WPC_FRONTS, MOCK_WPC_PRESSURE_CENTERS),
+        )
+
+        from stormscope.tools import get_surface_analysis
+        # Minneapolis (44.98, -93.27) is south/east of the cold front line
+        # which runs NW-SE. Should be on the warm side.
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        cold_fronts = [f for f in result["nearest_fronts"] if f["type"] == "cold"]
+        assert len(cold_fronts) > 0
+        assert cold_fronts[0].get("position") == "warm side (ahead of front)"
+        assert "location_summary" in result
+        assert "warm side" in result["location_summary"]
+
+    @patch("stormscope.tools._wpc")
+    async def test_cold_sector_detection(self, mock_wpc):
+        mock_wpc.get_surface_analysis = AsyncMock(
+            return_value=(MOCK_WPC_FRONTS, MOCK_WPC_PRESSURE_CENTERS),
+        )
+
+        from stormscope.tools import get_surface_analysis
+        # point north of the cold front should be on cold side
+        result = await get_surface_analysis(48.0, -95.0)
+
+        cold_fronts = [f for f in result["nearest_fronts"] if f["type"] == "cold"]
+        assert len(cold_fronts) > 0
+        assert cold_fronts[0].get("position") == "cold side (behind front)"
+
+    @patch("stormscope.tools._wpc")
+    async def test_empty_features(self, mock_wpc):
+        empty = {"type": "FeatureCollection", "features": []}
+        mock_wpc.get_surface_analysis = AsyncMock(return_value=(empty, empty))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert result["nearest_fronts"] == []
+        assert result["nearest_pressure_centers"] == []
+        assert "location_summary" not in result
+
+    @patch("stormscope.tools._wpc")
+    async def test_error_handling(self, mock_wpc):
+        mock_wpc.get_surface_analysis = AsyncMock(side_effect=Exception("API down"))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" in result
+
+    async def test_invalid_day(self):
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, day=0)
+        assert "error" in result
+        assert "invalid day" in result["error"]
+
+    async def test_invalid_day_too_high(self):
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, day=4)
+        assert "error" in result
+
+    @patch("stormscope.tools._wpc")
+    async def test_unknown_front_type_skipped(self, mock_wpc):
+        fronts_with_unknown = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"feat": "Imaginary Front Valid"},
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[-95.0, 47.0], [-93.0, 45.0]],
+                    },
+                },
+                MOCK_WPC_FRONTS["features"][0],
+            ],
+        }
+        mock_wpc.get_surface_analysis = AsyncMock(
+            return_value=(fronts_with_unknown, MOCK_WPC_PRESSURE_CENTERS),
+        )
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert len(result["nearest_fronts"]) == 1
+        assert result["nearest_fronts"][0]["type"] == "cold"
+
+
+class TestNearestPointOnLine:
+    def test_midpoint_of_segment(self):
+        from stormscope.tools import _nearest_point_on_line
+        # point directly south of the midpoint of a W-E segment
+        coords = [[-94.0, 46.0], [-92.0, 46.0]]
+        nlat, nlon, dist = _nearest_point_on_line(45.0, -93.0, coords)
+        assert abs(nlon - (-93.0)) < 0.01
+        assert abs(nlat - 46.0) < 0.01
+        assert 100 < dist < 120  # ~111 km per degree of latitude
+
+    def test_clamps_to_segment_start(self):
+        from stormscope.tools import _nearest_point_on_line
+        # point far west of a short segment
+        coords = [[-90.0, 45.0], [-89.0, 45.0]]
+        nlat, nlon, dist = _nearest_point_on_line(45.0, -95.0, coords)
+        assert abs(nlon - (-90.0)) < 0.01
+        assert abs(nlat - 45.0) < 0.01
+
+    def test_clamps_to_segment_end(self):
+        from stormscope.tools import _nearest_point_on_line
+        # point far east of a short segment
+        coords = [[-95.0, 45.0], [-94.0, 45.0]]
+        nlat, nlon, dist = _nearest_point_on_line(45.0, -89.0, coords)
+        assert abs(nlon - (-94.0)) < 0.01
+        assert abs(nlat - 45.0) < 0.01
+
+    def test_single_point_linestring(self):
+        from stormscope.tools import _nearest_point_on_line
+        coords = [[-93.0, 45.0]]
+        nlat, nlon, dist = _nearest_point_on_line(45.0, -93.0, coords)
+        assert dist == 0.0
+        assert abs(nlat - 45.0) < 0.01
+        assert abs(nlon - (-93.0)) < 0.01
+
+    def test_single_point_nonzero_distance(self):
+        from stormscope.tools import _nearest_point_on_line
+        coords = [[-93.0, 46.0]]
+        nlat, nlon, dist = _nearest_point_on_line(45.0, -93.0, coords)
+        assert 100 < dist < 120
+        assert abs(nlat - 46.0) < 0.01
+
+    def test_degenerate_zero_length_segment(self):
+        from stormscope.tools import _nearest_point_on_line
+        coords = [[-93.0, 45.0], [-93.0, 45.0]]
+        nlat, nlon, dist = _nearest_point_on_line(45.0, -93.0, coords)
+        assert dist == 0.0
+
+
+class TestWhichSideOfFront:
+    def test_warm_side(self):
+        from stormscope.tools import _which_side_of_front
+        # NW-SE cold front, point to the SE (warm sector)
+        coords = [[-95.0, 47.0], [-93.0, 45.0]]
+        result = _which_side_of_front(44.0, -92.0, coords, "cold")
+        assert result == "warm side (ahead of front)"
+
+    def test_cold_side(self):
+        from stormscope.tools import _which_side_of_front
+        # NW-SE cold front, point to the north (cold sector)
+        coords = [[-95.0, 47.0], [-93.0, 45.0]]
+        result = _which_side_of_front(48.0, -95.0, coords, "cold")
+        assert result == "cold side (behind front)"
+
+    def test_non_cold_front_returns_none(self):
+        from stormscope.tools import _which_side_of_front
+        coords = [[-95.0, 43.0], [-91.0, 44.0]]
+        assert _which_side_of_front(44.0, -93.0, coords, "warm") is None
+        assert _which_side_of_front(44.0, -93.0, coords, "stationary") is None
+        assert _which_side_of_front(44.0, -93.0, coords, "occluded") is None
+        assert _which_side_of_front(44.0, -93.0, coords, "trough") is None
+
+    def test_on_front_line_defaults_warm(self):
+        from stormscope.tools import _which_side_of_front
+        # point exactly on the line extension (cross product == 0)
+        coords = [[-95.0, 47.0], [-93.0, 45.0]]
+        result = _which_side_of_front(46.0, -94.0, coords, "cold")
+        assert result == "warm side (ahead of front)"
+
+
+class TestFmtDistance:
+    def test_us_units(self):
+        from stormscope.tools import _fmt_distance
+        result = _fmt_distance(160.934)
+        assert "mi" in result
+        assert "100" in result
+
+    @patch("stormscope.tools._is_si", return_value=True)
+    def test_si_units(self, _mock):
+        from stormscope.tools import _fmt_distance
+        result = _fmt_distance(150.0)
+        assert result == "150 km"
+
+    @patch("stormscope.tools._is_si", return_value=True)
+    def test_si_rounds(self, _mock):
+        from stormscope.tools import _fmt_distance
+        result = _fmt_distance(150.7)
+        assert result == "151 km"

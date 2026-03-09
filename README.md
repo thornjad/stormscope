@@ -1,6 +1,6 @@
 # Stormscope
 
-Real-time US weather data for AI assistants via MCP. Uses the free NWS API, NOAA Storm Prediction Center data, Iowa Environmental Mesonet radar, and Open-Meteo pressure-level model data.
+Real-time US weather data for AI assistants via MCP. Uses the free NWS API, NOAA Storm Prediction Center data, NOAA Weather Prediction Center surface analysis, Iowa Environmental Mesonet radar, and Open-Meteo pressure-level model data.
 
 US locations only. Covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return a clear error. The SPC national outlook covers the contiguous US only.
 
@@ -15,6 +15,7 @@ Most tools support a `detail` parameter: **standard** gives a clean summary, **f
 - National severe outlook with human-readable region descriptions
 - NEXRAD radar station metadata and imagery URLs
 - 500mb upper-air analysis: geopotential heights, temperature, wind, and derived vorticity (synoptic-scale resolution from a 5-point finite-difference grid — useful for identifying troughs, ridges, and jet stream patterns, but not mesoscale features)
+- Surface analysis: fronts, pressure centers (highs/lows), and warm/cold sector detection relative to the nearest cold front
 - Combined briefing that pulls everything together and adapts to the situation
 
 ## Installation
@@ -74,6 +75,7 @@ Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geoloc
 | `get_national_outlook` | CONUS-wide risk areas (no lat/lon) | `day`: 1-3 |
 | `get_radar` | NEXRAD radar with textual summary and clickable links | |
 | `get_upper_air` | 500mb heights, temperature, wind, derived vorticity (Open-Meteo) | |
+| `get_surface_analysis` | Fronts, pressure centers, warm/cold sector detection (WPC) | `day`: 1-3; `detail`: standard or full |
 | `get_briefing` | Combined briefing, the default for general weather questions | `detail`: standard or full |
 
 All location-aware tools accept optional `latitude`/`longitude`, falling back to the configured location (see [Location detection](#location-detection)).
@@ -112,7 +114,7 @@ Create `.claude/skills/` skills for common patterns:
 - **Morning briefing**: `get_briefing detail=full` for a full picture to start the day
 - **Quick check**: `get_conditions` for just current conditions
 - **Evening review**: `get_forecast mode=daily days=2` for tonight and tomorrow
-- **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_upper_air` + `get_radar` + `get_alerts detail=full`
+- **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_surface_analysis` + `get_upper_air` + `get_radar` + `get_alerts detail=full`
 
 ## Data sources
 
@@ -123,6 +125,9 @@ Conditions, forecasts, alerts, and gridpoint data. NWS data is produced by the U
 
 **NOAA Storm Prediction Center (SPC)** — [spc.noaa.gov](https://www.spc.noaa.gov) ([terms](https://www.weather.gov/disclaimer))
 Categorical and probabilistic severe weather outlooks (days 1-3). SPC data is US government public domain under the same statute as NWS.
+
+**NOAA Weather Prediction Center (WPC)** — [mapservices.weather.noaa.gov](https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/natl_fcst_wx_chart/MapServer)
+Surface analysis charts with fronts and pressure centers (days 1-3). WPC data is US government public domain under the same statute as NWS. Analysis charts are updated approximately 4 times per day. No pressure values are provided for H/L centers.
 
 **Iowa Environmental Mesonet (IEM)** — [mesonet.agron.iastate.edu](https://mesonet.agron.iastate.edu) ([disclaimer](https://mesonet.agron.iastate.edu/disclaimer.php))
 NEXRAD radar station metadata and imagery. IEM data is in the public domain and may be used freely by anyone for any lawful purpose. Data provided by the Iowa Environmental Mesonet of Iowa State University.
