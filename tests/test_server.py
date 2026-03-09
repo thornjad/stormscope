@@ -144,6 +144,16 @@ class TestServerValidation:
 
     @pytest.mark.asyncio
     @patch("stormscope.server.config")
+    async def test_invalid_detail_surface_analysis(self, mock_config):
+        mock_config.primary_latitude = 44.9
+        mock_config.primary_longitude = -93.2
+        from stormscope.server import get_surface_analysis
+        result = await get_surface_analysis(detail="verbose")
+        assert "error" in result
+        assert "invalid detail" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch("stormscope.server.config")
     async def test_invalid_days_forecast(self, mock_config):
         mock_config.primary_latitude = 44.9
         mock_config.primary_longitude = -93.2
