@@ -1,10 +1,13 @@
 # Changelog
 
-## 1.0.0
+## 1.1.0
 
 - add `get_upper_air` tool for 500mb analysis (heights, temperature, wind, vorticity) via Open-Meteo
 - add `OpenMeteoClient` for pressure-level model data with TTL caching and stale fallback
 - add vorticity module with 5-point finite-difference computation
+
+## 1.0.0
+
 - remove hostname from user-agent string for privacy
 - add debug logging to silent except blocks in SPC and tools modules
 - wrap blocking subprocess call in `asyncio.to_thread`
