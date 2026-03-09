@@ -49,7 +49,12 @@ def compute_vorticity(
     API clarity but only cardinal points are used in finite differences.
 
     Returns (relative_vorticity, absolute_vorticity) in s^-1.
+    Returns (None, None) for latitudes beyond 85 degrees where the
+    finite-difference grid spacing becomes degenerate.
     """
+    if abs(lat) > 85:
+        return None, None
+
     dx, dy = grid_spacing(lat)
 
     u_n, v_n = wind_components(*north_wind)

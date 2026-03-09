@@ -603,11 +603,12 @@ async def get_upper_air(latitude: float, longitude: float) -> dict:
                 rel, abso = compute_vorticity(
                     latitude, center_w, north_w, south_w, east_w, west_w,
                 )
-                rel_str = _fmt_vorticity(rel)
-                abs_str = _fmt_vorticity(abso)
-                vort_values.append(rel)
+                if rel is not None:
+                    rel_str = _fmt_vorticity(rel)
+                    abs_str = _fmt_vorticity(abso)
+                    vort_values.append(rel)
             except (IndexError, KeyError, TypeError):
-                pass
+                logger.debug("vorticity computation failed for timestep %d", i, exc_info=True)
 
             if h is not None:
                 height_values.append(h)

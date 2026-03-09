@@ -77,3 +77,27 @@ class TestComputeVorticity:
         rel, abso = compute_vorticity(45.0, center, north, south, east, west)
         assert rel > 0  # cyclonic in NH
         assert abso > rel  # absolute adds positive coriolis
+
+    def test_southern_hemisphere_coriolis_negative(self):
+        # same cyclonic shear pattern, but in SH coriolis is negative
+        center = (10.0, 270.0)
+        north = (10.0, 270.0)
+        south = (10.0, 270.0)
+        east = (10.0, 180.0)
+        west = (10.0, 0.0)
+
+        rel, abso = compute_vorticity(-45.0, center, north, south, east, west)
+        assert rel > 0  # shear-driven vorticity is positive regardless of hemisphere
+        assert abso < rel  # negative coriolis reduces absolute vorticity
+
+    def test_polar_latitude_returns_none(self):
+        wind = (10.0, 270.0)
+        rel, abso = compute_vorticity(90.0, wind, wind, wind, wind, wind)
+        assert rel is None
+        assert abso is None
+
+    def test_near_polar_returns_none(self):
+        wind = (10.0, 270.0)
+        rel, abso = compute_vorticity(86.0, wind, wind, wind, wind, wind)
+        assert rel is None
+        assert abso is None

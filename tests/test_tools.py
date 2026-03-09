@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock, patch
 
-from stormscope.tools import _fmt_temp, _fmt_wind, _fmt_visibility, _fmt_pressure
+from stormscope.tools import _fmt_temp, _fmt_wind, _fmt_visibility, _fmt_pressure, _fmt_upper_wind, _fmt_vorticity
 
 import pytest
 
@@ -616,6 +616,24 @@ class TestSIFormatting:
         assert _fmt_pressure(29.92, pascals=None) == "N/A"
 
 
+class TestUpperAirFormatters:
+    def test_fmt_upper_wind_no_direction(self):
+        assert _fmt_upper_wind(20.0, None) == "39 kt"
+
+    def test_fmt_upper_wind_calm(self):
+        assert _fmt_upper_wind(0.0, 270.0) == "Calm"
+
+    def test_fmt_upper_wind_none(self):
+        assert _fmt_upper_wind(None, None) == "N/A"
+
+    def test_fmt_vorticity_none(self):
+        assert _fmt_vorticity(None) == "N/A"
+
+    def test_fmt_vorticity_scales(self):
+        # 1e-5 s^-1 should format as 1.0
+        assert _fmt_vorticity(1e-5) == "1.0"
+
+
 class TestGetUpperAir:
     @patch("stormscope.tools._openmeteo")
     async def test_returns_time_series(self, mock_openmeteo):
@@ -710,3 +728,7 @@ class TestComputeTrend:
         from stormscope.tools import _compute_trend
         # first third averages to 0, last third is positive
         assert _compute_trend([0.0, 0.0, 0.0, 1e-5, 1e-5, 1e-5]) == "rising"
+
+    def test_all_zeros(self):
+        from stormscope.tools import _compute_trend
+        assert _compute_trend([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]) == "steady"
