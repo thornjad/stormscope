@@ -1,6 +1,6 @@
 # stormscope
 
-Real-time US weather data for AI assistants via MCP. Uses the free NWS API, NOAA Storm Prediction Center data, and Iowa Environmental Mesonet radar.
+Real-time US weather data for AI assistants via MCP. Uses the free NWS API, NOAA Storm Prediction Center data, Iowa Environmental Mesonet radar, and Open-Meteo pressure-level model data.
 
 US locations only. Covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return a clear error. The SPC national outlook covers the contiguous US only.
 
@@ -14,6 +14,7 @@ Most tools support a `detail` parameter: **standard** gives a clean summary, **f
 - SPC severe weather outlook, both categorical risk and probabilistic tornado/wind/hail
 - National severe outlook with human-readable region descriptions
 - NEXRAD radar station metadata and imagery URLs
+- 500mb upper-air analysis: geopotential heights, temperature, wind, and derived vorticity (synoptic-scale resolution from a 5-point finite-difference grid — useful for identifying troughs, ridges, and jet stream patterns, but not mesoscale features)
 - Combined briefing that pulls everything together and adapts to the situation
 
 ## Installation
@@ -72,9 +73,12 @@ Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geoloc
 | `get_spc_outlook` | SPC outlook for a point | `outlook_type`: categorical, tornado, wind, or hail; `day`: 1-3 |
 | `get_national_outlook` | CONUS-wide risk areas (no lat/lon) | `day`: 1-3 |
 | `get_radar` | NEXRAD radar with textual summary and clickable links | |
+| `get_upper_air` | 500mb heights, temperature, wind, derived vorticity (Open-Meteo) | |
 | `get_briefing` | Combined briefing, the default for general weather questions | `detail`: standard or full |
 
 All location-aware tools accept optional `latitude`/`longitude`, falling back to the configured location (see [Location detection](#location-detection)).
+
+Upper-air data provided by [Open-Meteo](https://open-meteo.com/) under CC-BY 4.0. Vorticity is derived from model wind fields at ~110km grid spacing — this captures synoptic-scale features (shortwave troughs, jet maxima) but not mesoscale detail.
 
 ### Example conversation
 
@@ -108,7 +112,7 @@ Create `.claude/skills/` skills for common patterns:
 - **Morning briefing**: `get_briefing detail=full` for a full picture to start the day
 - **Quick check**: `get_conditions` for just current conditions
 - **Evening review**: `get_forecast mode=daily days=2` for tonight and tomorrow
-- **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_radar` + `get_alerts detail=full`
+- **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_upper_air` + `get_radar` + `get_alerts detail=full`
 
 ## Disclaimer
 

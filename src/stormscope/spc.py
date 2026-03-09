@@ -6,7 +6,7 @@ import logging
 import httpx
 from shapely.geometry import Point, shape
 
-from stormscope.cache import TTLCache
+from stormscope.base_client import BaseAPIClient
 from stormscope.config import config
 
 logger = logging.getLogger(__name__)
@@ -35,20 +35,12 @@ def _cache_ttl(day: int) -> float:
     return _TTL_DAY1 if day == 1 else _TTL_DAY2_3
 
 
-class SPCClient:
+class SPCClient(BaseAPIClient):
     def __init__(self):
-        self._cache = TTLCache()
-        self._client: httpx.AsyncClient | None = None
-        self._client_lock = asyncio.Lock()
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        async with self._client_lock:
-            if self._client is None or self._client.is_closed:
-                self._client = httpx.AsyncClient(
-                    headers={"User-Agent": config.user_agent},
-                    timeout=30.0,
-                )
-            return self._client
+        super().__init__(
+            headers={"User-Agent": config.user_agent},
+            timeout=30.0,
+        )
 
     async def _fetch_geojson(self, url: str) -> dict:
         client = await self._get_client()
@@ -58,43 +50,19 @@ class SPCClient:
             return {"features": []}
         return resp.json()
 
-    async def close(self):
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-
     async def get_categorical_outlook(self, day: int = 1) -> dict:
-        cache_key = f"spc_cat_day{day}"
-        cached, is_stale = await self._cache.get(cache_key)
-        if cached is not None and not is_stale:
-            return cached
-
-        try:
-            url = SPC_OUTLOOK_URL.format(day=day)
-            data = await self._fetch_geojson(url)
-            await self._cache.set(cache_key, data, _cache_ttl(day))
-            return data
-        except Exception:
-            if cached is not None:
-                return cached
-            raise
+        url = SPC_OUTLOOK_URL.format(day=day)
+        return await self._cache.get_or_fetch(
+            f"spc_cat_day{day}", _cache_ttl(day), lambda: self._fetch_geojson(url),
+        )
 
     async def get_probabilistic_outlook(self, day: int, hazard: str) -> dict:
         """Fetch probabilistic outlook for a specific hazard type."""
-        cache_key = f"spc_prob_{hazard}_day{day}"
-        cached, is_stale = await self._cache.get(cache_key)
-        if cached is not None and not is_stale:
-            return cached
-
-        try:
-            slug = _HAZARD_SLUGS.get(hazard, hazard)
-            url = SPC_PROB_URL.format(day=day, hazard=slug)
-            data = await self._fetch_geojson(url)
-            await self._cache.set(cache_key, data, _cache_ttl(day))
-            return data
-        except Exception:
-            if cached is not None:
-                return cached
-            raise
+        slug = _HAZARD_SLUGS.get(hazard, hazard)
+        url = SPC_PROB_URL.format(day=day, hazard=slug)
+        return await self._cache.get_or_fetch(
+            f"spc_prob_{hazard}_day{day}", _cache_ttl(day), lambda: self._fetch_geojson(url),
+        )
 
     async def fetch_outlook(self, day: int, outlook_type: str) -> dict:
         """Unified fetch for categorical or probabilistic outlook."""
@@ -135,6 +103,7 @@ class SPCClient:
             try:
                 polygon = shape(feature["geometry"])
             except Exception:
+                logger.debug("skipping feature with invalid geometry", exc_info=True)
                 continue
             if point.within(polygon) and dn > best_dn:
                 best_dn = dn
@@ -166,6 +135,7 @@ class SPCClient:
             try:
                 polygon = shape(feature["geometry"])
             except Exception:
+                logger.debug("skipping feature with invalid geometry", exc_info=True)
                 continue
             if not point.within(polygon):
                 continue
@@ -214,6 +184,7 @@ class SPCClient:
                 polygon = shape(feature["geometry"])
                 region = polygon_to_region(polygon)
             except Exception:
+                logger.debug("failed to resolve region for feature", exc_info=True)
                 region = "unknown region"
 
             areas.append({

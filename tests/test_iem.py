@@ -1,29 +1,11 @@
 """Tests for IEM radar client."""
 
-from unittest.mock import AsyncMock, patch
+import asyncio
 
-from stormscope.iem import IEMClient
+import httpx
+import respx
 
-
-async def test_get_radar_info():
-    client = IEMClient()
-
-    mock_products = [{"id": "N0B"}, {"id": "N0S"}]
-    mock_scans = {"scans": [{"ts": "2026-03-04T12:00:00Z"}]}
-
-    with patch.object(client, "_request") as mock_req:
-        mock_req.side_effect = [
-            {"products": mock_products},
-            mock_scans,
-        ]
-
-        result = await client.get_radar_info("KMSP")
-
-    assert result["station_id"] == "KMSP"
-    assert result["available_products"] == ["N0B", "N0S"]
-    assert result["latest_scan_time"] == "2026-03-04T12:00:00Z"
-    assert "imagery_urls" in result
-    assert "MSP" in result["imagery_urls"]["site_url"]
+from stormscope.iem import IEM_BASE, IEMClient
 
 
 async def test_iem_site_strips_k():
@@ -33,17 +15,42 @@ async def test_iem_site_strips_k():
     assert client._iem_site("KABR") == "ABR"
 
 
+@respx.mock
+async def test_get_radar_info():
+    client = IEMClient()
+
+    respx.get(f"{IEM_BASE}/json/radar.py").mock(
+        side_effect=[
+            httpx.Response(200, json={"products": [{"id": "N0B"}, {"id": "N0S"}]}),
+            httpx.Response(200, json={"scans": [{"ts": "2026-03-04T12:00:00Z"}]}),
+        ],
+    )
+
+    result = await client.get_radar_info("KMSP")
+
+    assert result["station_id"] == "KMSP"
+    assert result["available_products"] == ["N0B", "N0S"]
+    assert result["latest_scan_time"] == "2026-03-04T12:00:00Z"
+    assert "imagery_urls" in result
+    assert "MSP" in result["imagery_urls"]["site_url"]
+
+
+@respx.mock
 async def test_fallback_on_failure():
     client = IEMClient()
 
-    with patch.object(client, "_request", side_effect=Exception("connection error")):
-        result = await client.get_radar_info("KMSP")
+    respx.get(f"{IEM_BASE}/json/radar.py").mock(
+        return_value=httpx.Response(500),
+    )
+
+    result = await client.get_radar_info("KMSP")
 
     assert result["station_id"] == "KMSP"
     assert result["_stale"] is True
     assert result["available_products"] == []
 
 
+@respx.mock
 async def test_stale_fallback_returns_cached():
     client = IEMClient()
 
@@ -54,13 +61,27 @@ async def test_stale_fallback_returns_cached():
         "imagery_urls": {},
     }
     await client._cache.set("radar:KMSP", cached_result, 0.01)
-
-    import asyncio
     await asyncio.sleep(0.02)
 
-    with patch.object(client, "_request", side_effect=Exception("down")):
-        result = await client.get_radar_info("KMSP")
+    respx.get(f"{IEM_BASE}/json/radar.py").mock(
+        return_value=httpx.Response(500),
+    )
+
+    result = await client.get_radar_info("KMSP")
 
     assert result["station_id"] == "KMSP"
     assert result["_stale"] is True
     assert result["available_products"] == ["N0B"]
+
+
+@respx.mock
+async def test_fetch_products_flat_list():
+    """IEM sometimes returns product list as flat strings instead of dicts."""
+    client = IEMClient()
+
+    respx.get(f"{IEM_BASE}/json/radar.py").mock(
+        return_value=httpx.Response(200, json={"products": ["N0B", "N0S"]}),
+    )
+
+    result = await client._fetch_products("MSP", "2026-03-04T11:00:00Z")
+    assert result == ["N0B", "N0S"]

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from stormscope.cache import TTLCache
+from stormscope.base_client import BaseAPIClient
 
 logger = logging.getLogger(__name__)
 
@@ -14,20 +14,12 @@ IEM_BASE = "https://mesonet.agron.iastate.edu"
 _CACHE_TTL = 300  # 5 minutes
 
 
-class IEMClient:
+class IEMClient(BaseAPIClient):
     def __init__(self):
-        self._cache = TTLCache()
-        self._client: httpx.AsyncClient | None = None
-        self._client_lock = asyncio.Lock()
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        async with self._client_lock:
-            if self._client is None or self._client.is_closed:
-                self._client = httpx.AsyncClient(
-                    headers={"User-Agent": "stormscope"},
-                    timeout=15.0,
-                )
-            return self._client
+        super().__init__(
+            headers={"User-Agent": "stormscope"},
+            timeout=15.0,
+        )
 
     async def _request(self, url: str) -> dict:
         client = await self._get_client()
@@ -116,6 +108,3 @@ class IEMClient:
                 "_stale_reason": "iem api unavailable",
             }
 
-    async def close(self):
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()

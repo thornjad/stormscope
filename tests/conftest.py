@@ -250,6 +250,28 @@ MOCK_PROB_OUTLOOK = {
     ],
 }
 
+def _make_upper_air_point(lat, lon, base_height=5520.0, base_speed=20.0, direction=250.0):
+    return {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": {
+            "time": [f"2026-03-09T{h:02d}:00" for h in range(12)],
+            "geopotential_height_500hPa": [base_height + i for i in range(12)],
+            "temperature_500hPa": [-22.0 + i * 0.1 for i in range(12)],
+            "wind_speed_500hPa": [base_speed + i * 0.5 for i in range(12)],
+            "wind_direction_500hPa": [direction] * 12,
+        },
+    }
+
+
+MOCK_UPPER_AIR_RAW = {
+    "center": _make_upper_air_point(44.98, -93.27),
+    "north": _make_upper_air_point(45.98, -93.27, base_speed=22.0),
+    "south": _make_upper_air_point(43.98, -93.27, base_speed=18.0),
+    "east": _make_upper_air_point(44.98, -92.27, base_speed=21.0, direction=240.0),
+    "west": _make_upper_air_point(44.98, -94.27, base_speed=19.0, direction=260.0),
+}
+
 MOCK_RADAR_RESPONSE = {
     "station_id": "KMPX",
     "available_products": ["N0B", "N0S"],

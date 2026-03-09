@@ -47,7 +47,7 @@ class TestFromEnv:
 
     def test_user_agent_format(self):
         cfg = Config.from_env()
-        assert "stormscope/" in cfg.user_agent
+        assert "stormscope," in cfg.user_agent
         assert "github.com/thornjad/stormscope" in cfg.user_agent
 
     @patch.dict(os.environ, {}, clear=True)

@@ -64,3 +64,17 @@ def degrees_to_cardinal(degrees: float | None) -> str | None:
         return None
     idx = round(degrees / 22.5) % 16
     return _CARDINALS[idx]
+
+
+def ms_to_kt(ms: float | None) -> float | None:
+    """Convert m/s to knots."""
+    if ms is None:
+        return None
+    return ms * 1.94384
+
+
+def gpm_to_dam(gpm: float | None) -> float | None:
+    """Convert geopotential meters to decameters."""
+    if gpm is None:
+        return None
+    return gpm / 10.0
