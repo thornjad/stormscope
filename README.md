@@ -133,7 +133,7 @@ NEXRAD radar station metadata and imagery. IEM data is in the public domain and 
 **ipinfo.io** — [ipinfo.io](https://ipinfo.io) ([terms](https://ipinfo.io/terms-of-service))
 IP-based geolocation, used only as a last-resort fallback when no coordinates are configured and CoreLocation is unavailable. One request per server session. Stormscope uses the free tier of this service and does not resell or redistribute the geolocation data. Set `DISABLE_AUTO_GEOLOCATION=true` to prevent this request entirely.
 
-All upstream services provide data without warranty of accuracy or availability. Stormscope caches responses to reduce request volume but cannot guarantee data freshness.
+All upstream services provide data without warranty of accuracy or availability. Stormscope caches responses to reduce request volume but cannot guarantee data freshness. Users of Stormscope are responsible for complying with each service's terms of use. The authors of Stormscope are not liable for how others use this software or the upstream APIs it connects to.
 
 ## Disclaimer
 
