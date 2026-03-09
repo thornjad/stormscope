@@ -280,12 +280,14 @@ MOCK_WPC_FRONTS = {
             "type": "Feature",
             "properties": {"feat": "Cold Front Valid"},
             "geometry": {
-                "type": "LineString",
+                "type": "MultiLineString",
                 "coordinates": [
-                    [-95.0, 47.0],
-                    [-94.0, 46.0],
-                    [-93.0, 45.0],
-                    [-92.0, 44.0],
+                    [
+                        [-95.0, 47.0],
+                        [-94.0, 46.0],
+                        [-93.0, 45.0],
+                        [-92.0, 44.0],
+                    ],
                 ],
             },
         },
@@ -293,11 +295,13 @@ MOCK_WPC_FRONTS = {
             "type": "Feature",
             "properties": {"feat": "Warm Front Valid"},
             "geometry": {
-                "type": "LineString",
+                "type": "MultiLineString",
                 "coordinates": [
-                    [-95.0, 43.0],
-                    [-93.0, 43.5],
-                    [-91.0, 44.0],
+                    [
+                        [-95.0, 43.0],
+                        [-93.0, 43.5],
+                        [-91.0, 44.0],
+                    ],
                 ],
             },
         },
