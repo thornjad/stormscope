@@ -1,5 +1,7 @@
 """Tests for NWS API client."""
 
+import asyncio
+
 import httpx
 import pytest
 import respx
@@ -117,6 +119,20 @@ class TestGetAlerts:
         assert len(result["features"]) == 1
 
 
+class TestHostValidation:
+    async def test_request_blocks_foreign_host(self, nws):
+        with pytest.raises(ValueError, match="disallowed host"):
+            await nws._request("https://evil.example.com/data")
+
+    @respx.mock
+    async def test_request_allows_nws_host(self, nws):
+        respx.get(f"{BASE_URL}/test").mock(
+            return_value=httpx.Response(200, json={"ok": True}),
+        )
+        result = await nws._request(f"{BASE_URL}/test")
+        assert result == {"ok": True}
+
+
 class TestRetryLogic:
     @respx.mock
     async def test_retries_on_500(self, nws):
@@ -138,3 +154,38 @@ class TestRetryLogic:
         ]
         result = await nws.get_point(40.0, -90.0)
         assert result["gridId"] == "MPX"
+
+    @respx.mock
+    async def test_retry_exhaustion_returns_503(self, nws):
+        route = respx.get(f"{BASE_URL}/points/40.0,-90.0")
+        route.side_effect = [
+            httpx.Response(500),
+            httpx.Response(500),
+            httpx.Response(500),
+        ]
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await nws.get_point(40.0, -90.0)
+        assert exc_info.value.response.status_code == 503
+
+    @respx.mock
+    async def test_stale_fallback_on_failure(self, nws):
+        await nws._cache.set(
+            "point:40.0,-90.0", MOCK_POINTS_RESPONSE["properties"], 0.01,
+        )
+        await asyncio.sleep(0.02)
+        respx.get(f"{BASE_URL}/points/40.0,-90.0").mock(
+            return_value=httpx.Response(500),
+        )
+        result = await nws.get_point(40.0, -90.0)
+        assert result["gridId"] == "MPX"
+
+    @respx.mock
+    async def test_network_error_retry_then_success(self, nws):
+        route = respx.get(f"{BASE_URL}/points/40.0,-90.0")
+        route.side_effect = [
+            httpx.ConnectError("connection failed"),
+            httpx.Response(200, json=MOCK_POINTS_RESPONSE),
+        ]
+        result = await nws.get_point(40.0, -90.0)
+        assert result["gridId"] == "MPX"
+        assert route.call_count == 2

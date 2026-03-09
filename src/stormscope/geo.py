@@ -205,7 +205,7 @@ async def geolocate_corelocation() -> tuple[float, float] | None:
         return _cl_location
 
     _cl_location_fetched = True
-    app_path = _ensure_location_helper()
+    app_path = await asyncio.to_thread(_ensure_location_helper)
     if app_path is None:
         _cl_location = None
         return None

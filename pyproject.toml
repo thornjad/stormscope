@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["mcp", "weather", "nws", "noaa", "spc", "radar"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: ISC License (ISCL)",
     "Programming Language :: Python :: 3",
@@ -42,6 +42,7 @@ packages = ["src/stormscope"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
     "respx>=0.22",
 ]
 

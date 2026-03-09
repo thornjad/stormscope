@@ -38,9 +38,15 @@ mcp = FastMCP(
         "mention it even if the user's location is not directly affected.\n\n"
         "Use get_briefing for general weather requests. Use specific tools "
         "(get_conditions, get_forecast, get_alerts, get_spc_outlook, get_radar) "
-        "when the user asks for targeted data."
+        "when the user asks for targeted data.\n\n"
+        "Use get_upper_air when the user asks about 500mb analysis, upper-air "
+        "patterns, troughs, ridges, jet stream, vorticity, or shortwave features. "
+        "This tool uses global model data and is not limited to US locations."
     ),
 )
+
+
+_VALID_DETAILS = {"standard", "full"}
 
 
 async def _resolve_location(
@@ -49,6 +55,10 @@ async def _resolve_location(
     lat = latitude if latitude is not None else config.primary_latitude
     lon = longitude if longitude is not None else config.primary_longitude
     if lat is not None and lon is not None:
+        if not (-90 <= lat <= 90):
+            raise ValueError(f"latitude {lat} out of range, must be -90 to 90")
+        if not (-180 <= lon <= 180):
+            raise ValueError(f"longitude {lon} out of range, must be -180 to 180")
         return lat, lon
     coords = await geolocate(
         disabled=config.disable_auto_geolocation,
@@ -78,6 +88,8 @@ async def get_conditions(
 
     Omit lat/lon to use configured primary location.
     """
+    if detail not in _VALID_DETAILS:
+        return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
@@ -108,6 +120,10 @@ async def get_forecast(
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
+    if not (1 <= days <= 7):
+        return {"error": f"invalid days {days}, must be 1-7"}
+    if not (1 <= hours <= 48):
+        return {"error": f"invalid hours {hours}, must be 1-48"}
     return await tools.get_forecast(lat, lon, mode, days, hours)
 
 
@@ -128,6 +144,8 @@ async def get_alerts(
 
     Omit lat/lon to use configured primary location.
     """
+    if detail not in _VALID_DETAILS:
+        return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
@@ -213,11 +231,42 @@ async def get_briefing(
 
     Omit lat/lon to use configured primary location.
     """
+    if detail not in _VALID_DETAILS:
+        return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
     return await tools.get_briefing(lat, lon, detail)
+
+
+@mcp.tool()
+async def get_upper_air(
+    latitude: float | None = None,
+    longitude: float | None = None,
+) -> dict:
+    """Get 500mb upper-air analysis with heights, temperature, wind, and vorticity.
+
+    Use when: "What does 500mb look like?", "Where are the troughs?",
+    "Upper-air pattern?", "Jet stream?", "Vorticity?"
+
+    500mb (~18,000 ft) is the key level for synoptic-scale analysis:
+    - Heights reveal troughs (low heights, stormier) and ridges (high heights, calmer)
+    - Vorticity maxima indicate regions favorable for storm development
+    - Wind shows the jet stream position and strength
+
+    Returns 12-hour time series with height (dam), temperature, wind, and
+    derived relative/absolute vorticity (10^-5 s^-1) from a 5-point
+    finite-difference grid at ~110km spacing.
+
+    Not US-only — uses global GFS model data via Open-Meteo.
+    Omit lat/lon to use configured primary location.
+    """
+    try:
+        lat, lon = await _resolve_location(latitude, longitude)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return await tools.get_upper_air(lat, lon)
 
 
 def main():

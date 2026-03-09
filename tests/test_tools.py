@@ -1,6 +1,8 @@
-"""Tests for the 7 collapsed tool functions."""
+"""Tests for the 8 tool functions."""
 
 from unittest.mock import AsyncMock, patch
+
+from stormscope.tools import _fmt_temp, _fmt_wind, _fmt_visibility, _fmt_pressure
 
 import pytest
 
@@ -16,6 +18,7 @@ from tests.conftest import (
     MOCK_RADAR_RESPONSE,
     MOCK_SPC_OUTLOOK,
     MOCK_STATIONS_RESPONSE,
+    MOCK_UPPER_AIR_RAW,
 )
 
 
@@ -577,3 +580,76 @@ class TestAlertsResilience:
         assert result["count"] == 1
         assert result["alerts"][0]["event"] == "Heat Advisory"
         assert str(MINNEAPOLIS_LAT) in result["location"]
+
+
+class TestSIFormatting:
+    @patch("stormscope.tools._is_si", return_value=True)
+    def test_fmt_temp_si(self, _mock):
+        assert _fmt_temp(72.0, celsius=22.0) == "22°C"
+
+    @patch("stormscope.tools._is_si", return_value=True)
+    def test_fmt_temp_si_none_celsius(self, _mock):
+        assert _fmt_temp(72.0, celsius=None) == "N/A"
+
+    @patch("stormscope.tools._is_si", return_value=True)
+    def test_fmt_wind_si(self, _mock):
+        assert _fmt_wind(15.0, "SW") == "SW 15 km/h"
+
+    @patch("stormscope.tools._is_si", return_value=True)
+    def test_fmt_wind_si_calm(self, _mock):
+        assert _fmt_wind(None, None) == "Calm"
+
+    @patch("stormscope.tools._is_si", return_value=True)
+    def test_fmt_visibility_si(self, _mock):
+        assert _fmt_visibility(10.0, meters=16093.0) == "16.1 km"
+
+    @patch("stormscope.tools._is_si", return_value=True)
+    def test_fmt_visibility_si_none(self, _mock):
+        assert _fmt_visibility(10.0, meters=None) == "N/A"
+
+    @patch("stormscope.tools._is_si", return_value=True)
+    def test_fmt_pressure_si(self, _mock):
+        assert _fmt_pressure(29.92, pascals=101325.0) == "1013.2 hPa"
+
+    @patch("stormscope.tools._is_si", return_value=True)
+    def test_fmt_pressure_si_none(self, _mock):
+        assert _fmt_pressure(29.92, pascals=None) == "N/A"
+
+
+class TestGetUpperAir:
+    @patch("stormscope.tools._openmeteo")
+    async def test_returns_time_series(self, mock_openmeteo):
+        mock_openmeteo.get_upper_air = AsyncMock(return_value=MOCK_UPPER_AIR_RAW)
+
+        from stormscope.tools import get_upper_air
+        result = await get_upper_air(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert result["level"] == "500 hPa"
+        assert len(result["time_series"]) == 12
+        assert "dam" in result["time_series"][0]["height"]
+        assert result["attribution"] == "Weather data by Open-Meteo.com (CC-BY 4.0) — https://open-meteo.com/"
+        assert result["height_trend"] in ("rising", "falling", "steady")
+        assert result["vorticity_trend"] in ("rising", "falling", "steady")
+
+    @patch("stormscope.tools._openmeteo")
+    async def test_error_handling(self, mock_openmeteo):
+        mock_openmeteo.get_upper_air = AsyncMock(
+            side_effect=Exception("API unavailable"),
+        )
+
+        from stormscope.tools import get_upper_air
+        result = await get_upper_air(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" in result
+
+    @patch("stormscope.tools._openmeteo")
+    async def test_vorticity_computed(self, mock_openmeteo):
+        mock_openmeteo.get_upper_air = AsyncMock(return_value=MOCK_UPPER_AIR_RAW)
+
+        from stormscope.tools import get_upper_air
+        result = await get_upper_air(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        for entry in result["time_series"]:
+            assert entry["relative_vorticity"] != "N/A"
+            assert entry["absolute_vorticity"] != "N/A"

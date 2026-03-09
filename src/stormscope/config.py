@@ -2,7 +2,6 @@
 
 import logging
 import os
-import platform
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -11,8 +10,7 @@ _VALID_UNITS = {"us", "si"}
 
 
 def _build_user_agent() -> str:
-    host = platform.node() or "unknown"
-    return f"(stormscope/{host}, https://github.com/thornjad/stormscope)"
+    return "(stormscope, https://github.com/thornjad/stormscope)"
 
 
 def _parse_coord(name: str) -> float | None:

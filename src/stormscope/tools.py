@@ -6,14 +6,17 @@ import logging
 from stormscope.config import config
 from stormscope.iem import IEMClient
 from stormscope.nws import NWSClient
+from stormscope.openmeteo import OpenMeteoClient
 from stormscope.spc import SPCClient
-from stormscope.units import c_to_f, degrees_to_cardinal, kmh_to_mph, m_to_miles, pa_to_inhg
+from stormscope.units import c_to_f, degrees_to_cardinal, gpm_to_dam, kmh_to_mph, m_to_miles, ms_to_kt, pa_to_inhg
+from stormscope.vorticity import compute_vorticity
 
 logger = logging.getLogger(__name__)
 
 _nws = NWSClient()
 _spc = SPCClient()
 _iem = IEMClient()
+_openmeteo = OpenMeteoClient()
 
 
 async def shutdown():
@@ -21,6 +24,7 @@ async def shutdown():
     await _nws.close()
     await _spc.close()
     await _iem.close()
+    await _openmeteo.close()
 
 
 def _is_si() -> bool:
@@ -34,14 +38,14 @@ def _obs_value(obs: dict, field: str) -> float | None:
     return entry.get("value")
 
 
-def _fmt_temp(value: float | None, celsius: float | None = None) -> str:
+def _fmt_temp(fahrenheit: float | None, celsius: float | None = None) -> str:
     if _is_si():
         if celsius is None:
             return "N/A"
         return f"{round(celsius)}°C"
-    if value is None:
+    if fahrenheit is None:
         return "N/A"
-    return f"{round(value)}°F"
+    return f"{round(fahrenheit)}°F"
 
 
 def _fmt_wind(speed: float | None, direction: str | None) -> str:
@@ -255,6 +259,7 @@ async def get_alerts(
             point = await _nws.get_point(latitude, longitude)
             location = _location_name(point)
         except Exception:
+            logger.debug("could not resolve location name", exc_info=True)
             location = f"{latitude}, {longitude}"
 
         alerts = sorted(
@@ -416,7 +421,6 @@ async def get_radar(latitude: float, longitude: float) -> dict:
             top_layer = "N/A"
 
         imagery = radar_info.get("imagery_urls", {})
-        site = radar_station[1:] if len(radar_station) == 4 and radar_station.startswith("K") else radar_station
         links = {}
         if imagery.get("composite_url"):
             links["regional_composite"] = imagery["composite_url"]
@@ -498,3 +502,134 @@ async def get_briefing(
                 summary[name] = res
 
     return summary
+
+
+_ATTRIBUTION = "Weather data by Open-Meteo.com (CC-BY 4.0) — https://open-meteo.com/"
+
+
+def _fmt_height_dam(gpm: float | None) -> str:
+    if gpm is None:
+        return "N/A"
+    dam = gpm_to_dam(gpm)
+    return f"{round(dam)} dam"
+
+
+def _fmt_upper_wind(speed_ms: float | None, direction: float | None) -> str:
+    if speed_ms is None:
+        return "N/A"
+    if round(speed_ms) == 0:
+        return "Calm"
+    cardinal = degrees_to_cardinal(direction)
+    if _is_si():
+        s = round(speed_ms)
+        unit = "m/s"
+    else:
+        s = round(ms_to_kt(speed_ms))
+        unit = "kt"
+    if cardinal:
+        return f"{cardinal} {s} {unit}"
+    return f"{s} {unit}"
+
+
+def _fmt_upper_temp(celsius: float | None) -> str:
+    if celsius is None:
+        return "N/A"
+    if _is_si():
+        return f"{round(celsius)}°C"
+    f = c_to_f(celsius)
+    return f"{round(f)}°F"
+
+
+def _fmt_vorticity(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    scaled = value * 1e5
+    return f"{scaled:.1f}"
+
+
+def _compute_trend(values: list[float]) -> str:
+    if len(values) < 3:
+        return "steady"
+    third = len(values) // 3
+    first_avg = sum(values[:third]) / third
+    last_avg = sum(values[-third:]) / third
+    diff = last_avg - first_avg
+    threshold = abs(first_avg) * 0.02 if first_avg != 0 else 0.01
+    if diff > threshold:
+        return "rising"
+    if diff < -threshold:
+        return "falling"
+    return "steady"
+
+
+async def get_upper_air(latitude: float, longitude: float) -> dict:
+    """get 500mb upper-air analysis with derived vorticity."""
+    try:
+        data = await _openmeteo.get_upper_air(latitude, longitude)
+        center = data["center"]
+        hourly = center.get("hourly", {})
+        times = hourly.get("time", [])
+        heights = hourly.get("geopotential_height_500hPa", [])
+        temps = hourly.get("temperature_500hPa", [])
+        speeds = hourly.get("wind_speed_500hPa", [])
+        directions = hourly.get("wind_direction_500hPa", [])
+
+        time_series = []
+        height_values = []
+        vort_values = []
+
+        for i in range(len(times)):
+            h = heights[i] if i < len(heights) else None
+            t = temps[i] if i < len(temps) else None
+            spd = speeds[i] if i < len(speeds) else None
+            d = directions[i] if i < len(directions) else None
+
+            # extract winds from all 5 points for vorticity
+            rel_str = "N/A"
+            abs_str = "N/A"
+            try:
+                def _wind_at(point_key, idx):
+                    pt = data[point_key].get("hourly", {})
+                    s = pt.get("wind_speed_500hPa", [])[idx]
+                    dr = pt.get("wind_direction_500hPa", [])[idx]
+                    return (s, dr)
+
+                center_w = _wind_at("center", i)
+                north_w = _wind_at("north", i)
+                south_w = _wind_at("south", i)
+                east_w = _wind_at("east", i)
+                west_w = _wind_at("west", i)
+
+                rel, abso = compute_vorticity(
+                    latitude, center_w, north_w, south_w, east_w, west_w,
+                )
+                rel_str = _fmt_vorticity(rel)
+                abs_str = _fmt_vorticity(abso)
+                vort_values.append(rel)
+            except (IndexError, KeyError, TypeError):
+                pass
+
+            if h is not None:
+                height_values.append(h)
+
+            time_series.append({
+                "time": times[i],
+                "height": _fmt_height_dam(h),
+                "temperature": _fmt_upper_temp(t),
+                "wind": _fmt_upper_wind(spd, d),
+                "relative_vorticity": rel_str,
+                "absolute_vorticity": abs_str,
+            })
+
+        return {
+            "latitude": latitude,
+            "longitude": longitude,
+            "level": "500 hPa",
+            "time_series": time_series,
+            "height_trend": _compute_trend(height_values),
+            "vorticity_trend": _compute_trend(vort_values),
+            "attribution": _ATTRIBUTION,
+        }
+    except Exception as exc:
+        logger.exception("error fetching upper-air data")
+        return {"error": f"failed to fetch upper-air data: {exc}"}

@@ -1,3 +1,3 @@
 """stormscope: real-time US weather data via NWS API, NOAA SPC, and IEM radar."""
 
-__version__ = "0.10.0"
+__version__ = "1.0.0"
