@@ -35,8 +35,8 @@ Or add to your Claude Code MCP config:
       "command": "uvx",
       "args": ["--from", "git+https://github.com/thornjad/stormscope", "stormscope"],
       "env": {
-        "PRIMARY_LATITUDE": "44.9778",
-        "PRIMARY_LONGITUDE": "-93.2650"
+        "PRIMARY_LATITUDE": "YOUR_LATITUDE",
+        "PRIMARY_LONGITUDE": "YOUR_LONGITUDE"
       }
     }
   }
