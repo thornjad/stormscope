@@ -114,6 +114,27 @@ Create `.claude/skills/` skills for common patterns:
 - **Evening review**: `get_forecast mode=daily days=2` for tonight and tomorrow
 - **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_upper_air` + `get_radar` + `get_alerts detail=full`
 
+## Data sources
+
+stormscope aggregates data from several upstream services. None of these services require authentication or API keys.
+
+**National Weather Service (NWS)** — [api.weather.gov](https://api.weather.gov) ([terms](https://www.weather.gov/disclaimer))
+Conditions, forecasts, alerts, and gridpoint data. NWS data is produced by the US federal government and is in the public domain under [17 U.S.C. § 105](https://www.law.cornell.edu/uscode/text/17/105). Use of NWS data does not imply NOAA or NWS endorsement of this project.
+
+**NOAA Storm Prediction Center (SPC)** — [spc.noaa.gov](https://www.spc.noaa.gov) ([terms](https://www.weather.gov/disclaimer))
+Categorical and probabilistic severe weather outlooks (days 1-3). SPC data is US government public domain under the same statute as NWS.
+
+**Iowa Environmental Mesonet (IEM)** — [mesonet.agron.iastate.edu](https://mesonet.agron.iastate.edu) ([disclaimer](https://mesonet.agron.iastate.edu/disclaimer.php))
+NEXRAD radar station metadata and imagery. IEM data is in the public domain and may be used freely by anyone for any lawful purpose. Data provided by the Iowa Environmental Mesonet of Iowa State University.
+
+**Open-Meteo** — [open-meteo.com](https://open-meteo.com) ([terms](https://open-meteo.com/en/terms))
+500mb upper-air pressure-level data (geopotential heights, temperature, wind). Provided under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/). The free tier is for non-commercial use only; commercial use requires a paid subscription.
+
+**ipinfo.io** — [ipinfo.io](https://ipinfo.io) ([terms](https://ipinfo.io/terms-of-service))
+IP-based geolocation, used only as a last-resort fallback when no coordinates are configured and CoreLocation is unavailable. One request per server session. stormscope uses the free tier of this service and does not resell or redistribute the geolocation data. Set `DISABLE_AUTO_GEOLOCATION=true` to prevent this request entirely.
+
+All upstream services provide data without warranty of accuracy or availability. stormscope caches responses to reduce request volume but cannot guarantee data freshness.
+
 ## Disclaimer
 
 This application is for informational and educational purposes only. It is not intended for use in life-threatening weather conditions or emergency situations, and should not be relied on as a sole source of weather information. Do not rely on this application for critical weather decisions. Always consult official weather services and emergency broadcasts during severe weather. This application may not provide real-time or accurate weather information. The authors shall not be held liable in the event of injury, death, or property damage resulting from reliance on this software. See the included [license](./LICENSE) for specific language limiting liability.
