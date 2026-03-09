@@ -4,8 +4,6 @@ import asyncio
 import logging
 import math
 
-from shapely.geometry import Point, shape
-
 from stormscope.config import config
 from stormscope.iem import IEMClient
 from stormscope.nws import NWSClient
@@ -13,7 +11,7 @@ from stormscope.openmeteo import OpenMeteoClient
 from stormscope.spc import SPCClient
 from stormscope.units import c_to_f, degrees_to_cardinal, gpm_to_dam, kmh_to_mph, m_to_miles, ms_to_kt, pa_to_inhg
 from stormscope.vorticity import compute_vorticity
-from stormscope.wpc import WPCClient, _FRONT_TYPES, _CENTER_TYPES
+from stormscope.wpc import WPCClient, FRONT_TYPES, CENTER_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -669,11 +667,12 @@ def _nearest_point_on_line(lat: float, lon: float, coords: list) -> tuple[float,
     best_dist = float("inf")
     best_pt = (coords[0][1], coords[0][0])
 
-    point = Point(lon, lat)
     for i in range(len(coords) - 1):
         ax, ay = coords[i]
         bx, by = coords[i + 1]
-        # project point onto segment in lon/lat space (approximate but adequate)
+        # project point onto segment in lon/lat space (approximate at
+        # high latitudes due to longitude compression, but adequate for
+        # CONUS where cos(lat) ~ 0.65-0.91)
         dx, dy = bx - ax, by - ay
         if dx == 0 and dy == 0:
             px, py = ax, ay
@@ -684,6 +683,10 @@ def _nearest_point_on_line(lat: float, lon: float, coords: list) -> tuple[float,
         if d < best_dist:
             best_dist = d
             best_pt = (py, px)
+
+    # single-point linestring: loop didn't execute, compute distance to the only point
+    if best_dist == float("inf"):
+        best_dist = _haversine_km(lat, lon, best_pt[0], best_pt[1])
 
     return best_pt[0], best_pt[1], best_dist
 
@@ -745,7 +748,7 @@ async def get_surface_analysis(
         parsed_fronts = []
         for feat in fronts_data.get("features", []):
             props = feat.get("properties", {})
-            feat_type = _FRONT_TYPES.get(props.get("feat", ""))
+            feat_type = FRONT_TYPES.get(props.get("feat", ""))
             if feat_type is None:
                 continue
             geom = feat.get("geometry", {})
@@ -772,7 +775,7 @@ async def get_surface_analysis(
         parsed_centers = []
         for feat in centers_data.get("features", []):
             props = feat.get("properties", {})
-            center_type = _CENTER_TYPES.get(props.get("feat", ""))
+            center_type = CENTER_TYPES.get(props.get("feat", ""))
             if center_type is None:
                 continue
             geom = feat.get("geometry", {})
@@ -808,12 +811,12 @@ async def get_surface_analysis(
         }
         if location_summary:
             result["location_summary"] = location_summary
-        result["nearest_fronts"] = parsed_fronts[:5] if detail == "standard" else parsed_fronts
-        result["nearest_pressure_centers"] = parsed_centers[:4] if detail == "standard" else parsed_centers
-
-        if detail == "full":
-            result["all_fronts"] = parsed_fronts
-            result["all_pressure_centers"] = parsed_centers
+        if detail == "standard":
+            result["nearest_fronts"] = parsed_fronts[:5]
+            result["nearest_pressure_centers"] = parsed_centers[:4]
+        else:
+            result["nearest_fronts"] = parsed_fronts
+            result["nearest_pressure_centers"] = parsed_centers
 
         return result
     except Exception as exc:

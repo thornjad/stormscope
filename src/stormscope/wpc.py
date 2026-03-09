@@ -21,7 +21,7 @@ _DAY_LAYERS: dict[int, tuple[int, int]] = {
 
 _TTL = 1800  # 30min
 
-_FRONT_TYPES = {
+FRONT_TYPES = {
     "Cold Front Valid": "cold",
     "Warm Front Valid": "warm",
     "Stationary Front Valid": "stationary",
@@ -29,7 +29,7 @@ _FRONT_TYPES = {
     "Trough Valid": "trough",
 }
 
-_CENTER_TYPES = {
+CENTER_TYPES = {
     "High Valid": "high",
     "Low Valid": "low",
 }
@@ -54,7 +54,10 @@ class WPCClient(BaseAPIClient):
         resp.raise_for_status()
         if not resp.content:
             return {"type": "FeatureCollection", "features": []}
-        return resp.json()
+        data = resp.json()
+        if data.get("exceededTransferLimit"):
+            logger.warning("WPC response was truncated by ArcGIS transfer limit")
+        return data
 
     async def get_fronts(self, day: int = 1) -> dict:
         layers = _DAY_LAYERS.get(day)
