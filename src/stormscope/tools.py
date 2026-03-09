@@ -554,7 +554,8 @@ def _compute_trend(values: list[float]) -> str:
     first_avg = sum(values[:third]) / third
     last_avg = sum(values[-third:]) / third
     diff = last_avg - first_avg
-    threshold = abs(first_avg) * 0.02 if first_avg != 0 else 0.01
+    data_range = max(values) - min(values) if values else 0
+    threshold = abs(first_avg) * 0.02 if first_avg != 0 else data_range * 0.02 or 1e-10
     if diff > threshold:
         return "rising"
     if diff < -threshold:
@@ -578,22 +579,21 @@ async def get_upper_air(latitude: float, longitude: float) -> dict:
         height_values = []
         vort_values = []
 
+        def _wind_at(point_key, idx):
+            pt = data[point_key].get("hourly", {})
+            s = pt.get("wind_speed_500hPa", [])[idx]
+            dr = pt.get("wind_direction_500hPa", [])[idx]
+            return (s, dr)
+
         for i in range(len(times)):
             h = heights[i] if i < len(heights) else None
             t = temps[i] if i < len(temps) else None
             spd = speeds[i] if i < len(speeds) else None
             d = directions[i] if i < len(directions) else None
 
-            # extract winds from all 5 points for vorticity
             rel_str = "N/A"
             abs_str = "N/A"
             try:
-                def _wind_at(point_key, idx):
-                    pt = data[point_key].get("hourly", {})
-                    s = pt.get("wind_speed_500hPa", [])[idx]
-                    dr = pt.get("wind_direction_500hPa", [])[idx]
-                    return (s, dr)
-
                 center_w = _wind_at("center", i)
                 north_w = _wind_at("north", i)
                 south_w = _wind_at("south", i)

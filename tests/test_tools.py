@@ -653,3 +653,60 @@ class TestGetUpperAir:
         for entry in result["time_series"]:
             assert entry["relative_vorticity"] != "N/A"
             assert entry["absolute_vorticity"] != "N/A"
+
+    @patch("stormscope.tools._openmeteo")
+    async def test_partial_data_degrades_gracefully(self, mock_openmeteo):
+        partial = {k: dict(v) for k, v in MOCK_UPPER_AIR_RAW.items()}
+        # truncate south point wind arrays to 6 entries
+        south_hourly = dict(partial["south"]["hourly"])
+        south_hourly["wind_speed_500hPa"] = south_hourly["wind_speed_500hPa"][:6]
+        south_hourly["wind_direction_500hPa"] = south_hourly["wind_direction_500hPa"][:6]
+        partial["south"] = {**partial["south"], "hourly": south_hourly}
+        mock_openmeteo.get_upper_air = AsyncMock(return_value=partial)
+
+        from stormscope.tools import get_upper_air
+        result = await get_upper_air(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert len(result["time_series"]) == 12
+        # first 6 entries should have vorticity, last 6 fall back to N/A
+        assert result["time_series"][0]["relative_vorticity"] != "N/A"
+        assert result["time_series"][11]["relative_vorticity"] == "N/A"
+
+    @patch("stormscope.tools._is_si", return_value=True)
+    @patch("stormscope.tools._openmeteo")
+    async def test_si_units(self, mock_openmeteo, _mock_si):
+        mock_openmeteo.get_upper_air = AsyncMock(return_value=MOCK_UPPER_AIR_RAW)
+
+        from stormscope.tools import get_upper_air
+        result = await get_upper_air(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "m/s" in result["time_series"][0]["wind"]
+        assert "°C" in result["time_series"][0]["temperature"]
+
+
+class TestComputeTrend:
+    def test_rising(self):
+        from stormscope.tools import _compute_trend
+        assert _compute_trend([1.0, 1.0, 1.0, 2.0, 2.0, 2.0]) == "rising"
+
+    def test_falling(self):
+        from stormscope.tools import _compute_trend
+        assert _compute_trend([2.0, 2.0, 2.0, 1.0, 1.0, 1.0]) == "falling"
+
+    def test_steady(self):
+        from stormscope.tools import _compute_trend
+        assert _compute_trend([5.0, 5.0, 5.0, 5.0, 5.0, 5.0]) == "steady"
+
+    def test_fewer_than_three(self):
+        from stormscope.tools import _compute_trend
+        assert _compute_trend([1.0, 2.0]) == "steady"
+
+    def test_empty(self):
+        from stormscope.tools import _compute_trend
+        assert _compute_trend([]) == "steady"
+
+    def test_zero_first_avg_with_change(self):
+        from stormscope.tools import _compute_trend
+        # first third averages to 0, last third is positive
+        assert _compute_trend([0.0, 0.0, 0.0, 1e-5, 1e-5, 1e-5]) == "rising"

@@ -185,7 +185,7 @@ class TestServerValidation:
 
 class TestMCPRegistration:
     @pytest.mark.asyncio
-    async def test_seven_tools_registered(self):
+    async def test_all_tools_registered(self):
         from stormscope.server import mcp
         tools = await mcp.list_tools()
         names = [t.name for t in tools]
