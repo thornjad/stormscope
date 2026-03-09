@@ -189,4 +189,4 @@ class TestMCPRegistration:
         from stormscope.server import mcp
         tools = await mcp.list_tools()
         names = [t.name for t in tools]
-        assert len(tools) == 8, f"expected 8 tools, got {len(tools)}: {names}"
+        assert len(tools) == 9, f"expected 9 tools, got {len(tools)}: {names}"

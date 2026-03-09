@@ -41,7 +41,11 @@ mcp = FastMCP(
         "when the user asks for targeted data.\n\n"
         "Use get_upper_air when the user asks about 500mb analysis, upper-air "
         "patterns, troughs, ridges, jet stream, vorticity, or shortwave features. "
-        "This tool uses global model data and is not limited to US locations."
+        "This tool uses global model data and is not limited to US locations.\n\n"
+        "Use get_surface_analysis when the user asks about fronts, warm/cold "
+        "sectors, surface lows/highs, or synoptic surface patterns. Returns "
+        "distance and bearing to nearby fronts and pressure centers, plus "
+        "warm/cold sector detection relative to the nearest cold front."
     ),
 )
 
@@ -267,6 +271,41 @@ async def get_upper_air(
     except ValueError as exc:
         return {"error": str(exc)}
     return await tools.get_upper_air(lat, lon)
+
+
+@mcp.tool()
+async def get_surface_analysis(
+    latitude: float | None = None,
+    longitude: float | None = None,
+    day: int = 1,
+    detail: str = "standard",
+) -> dict:
+    """Get WPC surface analysis showing fronts, pressure centers, and warm/cold sector.
+
+    Use when: "Where are the fronts?", "Am I in the warm sector?",
+    "Surface analysis?", "Where's the nearest low?"
+
+    Returns distance and bearing from your location to nearby fronts and
+    pressure centers (highs/lows). For cold fronts, determines whether
+    you're on the warm side (ahead) or cold side (behind).
+
+    day: 1=today, 2=tomorrow, 3=day after.
+    detail="standard": nearest ~5 fronts, ~4 pressure centers, location summary.
+    detail="full": all features with nearest-point coordinates.
+
+    Limitations: no pressure values on H/L centers, warm/cold sector detection
+    is approximate (geometric heuristic), CONUS coverage, analysis charts
+    updated ~4x/day.
+
+    Omit lat/lon to use configured primary location.
+    """
+    if detail not in _VALID_DETAILS:
+        return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
+    try:
+        lat, lon = await _resolve_location(latitude, longitude)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return await tools.get_surface_analysis(lat, lon, day, detail)
 
 
 def main():
