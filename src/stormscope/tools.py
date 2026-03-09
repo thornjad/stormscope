@@ -668,8 +668,8 @@ def _nearest_point_on_line(lat: float, lon: float, coords: list) -> tuple[float,
     best_pt = (coords[0][1], coords[0][0])
 
     for i in range(len(coords) - 1):
-        ax, ay = coords[i]
-        bx, by = coords[i + 1]
+        ax, ay = coords[i][0], coords[i][1]
+        bx, by = coords[i + 1][0], coords[i + 1][1]
         # project point onto segment in lon/lat space (approximate at
         # high latitudes due to longitude compression, but adequate for
         # CONUS where cos(lat) ~ 0.65-0.91)
@@ -708,16 +708,16 @@ def _which_side_of_front(lat: float, lon: float, coords: list, front_type: str) 
     best_i = 0
     best_dist = float("inf")
     for i in range(len(coords) - 1):
-        ax, ay = coords[i]
-        bx, by = coords[i + 1]
+        ax, ay = coords[i][0], coords[i][1]
+        bx, by = coords[i + 1][0], coords[i + 1][1]
         mx, my = (ax + bx) / 2, (ay + by) / 2
         d = _haversine_km(lat, lon, my, mx)
         if d < best_dist:
             best_dist = d
             best_i = i
 
-    ax, ay = coords[best_i]
-    bx, by = coords[best_i + 1]
+    ax, ay = coords[best_i][0], coords[best_i][1]
+    bx, by = coords[best_i + 1][0], coords[best_i + 1][1]
     # front direction vector
     fdx, fdy = bx - ax, by - ay
     # vector from segment start to point
@@ -752,7 +752,15 @@ async def get_surface_analysis(
             if feat_type is None:
                 continue
             geom = feat.get("geometry", {})
-            coords = geom.get("coordinates", [])
+            geom_type = geom.get("type", "")
+            raw_coords = geom.get("coordinates", [])
+            if not raw_coords:
+                continue
+            # flatten MultiLineString into a single coordinate list
+            if geom_type == "MultiLineString":
+                coords = [pt for segment in raw_coords for pt in segment]
+            else:
+                coords = raw_coords
             if not coords:
                 continue
             nlat, nlon, dist = _nearest_point_on_line(latitude, longitude, coords)
@@ -769,7 +777,7 @@ async def get_surface_analysis(
                 entry["position"] = side
             if detail == "full":
                 entry["nearest_point"] = {"latitude": round(nlat, 4), "longitude": round(nlon, 4)}
-                entry["geometry_type"] = geom.get("type", "")
+                entry["geometry_type"] = geom_type
             parsed_fronts.append(entry)
 
         parsed_centers = []
