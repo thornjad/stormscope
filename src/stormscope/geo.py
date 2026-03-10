@@ -154,9 +154,9 @@ _LOCATION_INFO_PLIST = """\
     <key>LSUIElement</key>
     <true/>
     <key>NSLocationUsageDescription</key>
-    <string>stormscope uses your location for local weather data.</string>
+    <string>StormScope uses your location for local weather data.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>stormscope uses your location for local weather data.</string>
+    <string>StormScope uses your location for local weather data.</string>
 </dict>
 </plist>
 """

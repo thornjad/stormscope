@@ -1,4 +1,4 @@
-# Stormscope
+# StormScope
 
 Real-time US weather data for AI assistants via MCP. Uses the free NWS API, NOAA Storm Prediction Center data, NOAA Weather Prediction Center surface analysis, Iowa Environmental Mesonet radar, and Open-Meteo pressure-level model data.
 
@@ -23,7 +23,7 @@ Most tools support a `detail` parameter: **standard** gives a clean summary, **f
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-claude mcp add stormscope -- uvx --from git+https://github.com/thornjad/stormscope stormscope
+claude mcp add --scope user stormscope -- uvx --from git+https://github.com/thornjad/stormscope stormscope
 ```
 
 Or add to your Claude Code MCP config:
@@ -84,7 +84,7 @@ Upper-air data provided by [Open-Meteo](https://open-meteo.com/) under CC-BY 4.0
 
 ### Example conversation
 
-These examples show how an AI assistant might present Stormscope data. The tools return structured JSON, and the assistant formats it for the user.
+These examples show how an AI assistant might present StormScope data. The tools return structured JSON, and the assistant formats it for the user.
 
 **"What's the weather?"** (uses `get_briefing`):
 
@@ -118,7 +118,7 @@ Create `.claude/skills/` skills for common patterns:
 
 ## Data sources
 
-Stormscope aggregates data from several upstream services. None of these services require authentication or API keys.
+StormScope aggregates data from several upstream services. None of these services require authentication or API keys.
 
 **National Weather Service (NWS)** — [api.weather.gov](https://api.weather.gov) ([terms](https://www.weather.gov/disclaimer))
 Conditions, forecasts, alerts, and gridpoint data. NWS data is produced by the US federal government and is in the public domain under [17 U.S.C. § 105](https://www.law.cornell.edu/uscode/text/17/105). Use of NWS data does not imply NOAA or NWS endorsement of this project.
@@ -133,12 +133,12 @@ Surface analysis charts with fronts and pressure centers (days 1-3). WPC data is
 NEXRAD radar station metadata and imagery. IEM data is in the public domain and may be used freely by anyone for any lawful purpose. Data provided by the Iowa Environmental Mesonet of Iowa State University.
 
 **Open-Meteo** — [open-meteo.com](https://open-meteo.com) ([terms](https://open-meteo.com/en/terms))
-500mb upper-air pressure-level data (geopotential heights, temperature, wind). Provided under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/). Stormscope uses the free non-commercial tier and does not support paid Open-Meteo subscriptions.
+500mb upper-air pressure-level data (geopotential heights, temperature, wind). Provided under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/). StormScope uses the free non-commercial tier and does not support paid Open-Meteo subscriptions.
 
 **ipinfo.io** — [ipinfo.io](https://ipinfo.io) ([terms](https://ipinfo.io/terms-of-service))
-IP-based geolocation, used only as a last-resort fallback when no coordinates are configured and CoreLocation is unavailable. One request per server session. Stormscope uses the free tier of this service and does not resell or redistribute the geolocation data. Set `DISABLE_AUTO_GEOLOCATION=true` to prevent this request entirely.
+IP-based geolocation, used only as a last-resort fallback when no coordinates are configured and CoreLocation is unavailable. One request per server session. StormScope uses the free tier of this service and does not resell or redistribute the geolocation data. Set `DISABLE_AUTO_GEOLOCATION=true` to prevent this request entirely.
 
-All upstream services provide data without warranty of accuracy or availability. Stormscope caches responses to reduce request volume but cannot guarantee data freshness. Users of Stormscope are responsible for complying with each service's terms of use. The authors of Stormscope are not liable for how others use this software or the upstream APIs it connects to.
+All upstream services provide data without warranty of accuracy or availability. StormScope caches responses to reduce request volume but cannot guarantee data freshness. Users of StormScope are responsible for complying with each service's terms of use. The authors of StormScope are not liable for how others use this software or the upstream APIs it connects to.
 
 ## Disclaimer
 

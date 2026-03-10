@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-stormscope is a real-time US weather data MCP server. It aggregates data from NWS (National Weather Service), NOAA SPC (Storm Prediction Center), Iowa Environmental Mesonet (NEXRAD radar), and Open-Meteo (500mb upper-air model data) into 8 tools consumed by AI assistants via the FastMCP framework.
+StormScope is a real-time US weather data MCP server. It aggregates data from NWS (National Weather Service), NOAA SPC (Storm Prediction Center), Iowa Environmental Mesonet (NEXRAD radar), and Open-Meteo (500mb upper-air model data) into 8 tools consumed by AI assistants via the FastMCP framework.
 
 ## Commands
 

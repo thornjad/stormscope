@@ -19,7 +19,7 @@ mcp = FastMCP(
     "stormscope",
     lifespan=_lifespan,
     instructions=(
-        "You have access to real-time US weather data via the stormscope tools. "
+        "You have access to real-time US weather data via the StormScope tools. "
         "At the start of each conversation, if a primary location is configured, "
         "check for active weather alerts using get_alerts. If any of the following "
         "are active, immediately notify the user:\n"
