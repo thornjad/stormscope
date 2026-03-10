@@ -138,3 +138,23 @@ async def test_empty_response_body(wpc_client):
 
     result = await wpc_client.get_fronts(1)
     assert result["features"] == []
+
+
+@respx.mock
+async def test_null_json_response(wpc_client):
+    _, layer = _DAY_LAYERS[1]
+    url = f"{WPC_BASE}/{layer}/query"
+    respx.get(url).mock(return_value=httpx.Response(200, content=b"null"))
+
+    result = await wpc_client.get_fronts(1)
+    assert result == {"type": "FeatureCollection", "features": []}
+
+
+@respx.mock
+async def test_non_dict_json_response(wpc_client):
+    _, layer = _DAY_LAYERS[1]
+    url = f"{WPC_BASE}/{layer}/query"
+    respx.get(url).mock(return_value=httpx.Response(200, json=["unexpected", "array"]))
+
+    result = await wpc_client.get_fronts(1)
+    assert result == {"type": "FeatureCollection", "features": []}

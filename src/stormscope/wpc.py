@@ -55,6 +55,9 @@ class WPCClient(BaseAPIClient):
         if not resp.content:
             return {"type": "FeatureCollection", "features": []}
         data = resp.json()
+        if not isinstance(data, dict):
+            logger.warning("WPC returned unexpected response (not a JSON object)")
+            return {"type": "FeatureCollection", "features": []}
         if data.get("exceededTransferLimit"):
             logger.warning("WPC response was truncated by ArcGIS transfer limit")
         return data
