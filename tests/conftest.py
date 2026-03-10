@@ -96,6 +96,7 @@ MOCK_HOURLY_FORECAST_RESPONSE = {
             {
                 "number": i + 1,
                 "startTime": f"2026-03-04T{12 + i:02d}:00:00-06:00",
+                "endTime": f"2026-03-04T{13 + i:02d}:00:00-06:00",
                 "temperature": 72 + i,
                 "temperatureUnit": "F",
                 "windSpeed": "8 mph",
@@ -116,7 +117,53 @@ MOCK_GRIDPOINT_RESPONSE = {
         },
         "dewpoint": {
             "uom": "wmoUnit:degC",
-            "values": [{"validTime": "2026-03-04T12:00:00+00:00/PT1H", "value": 10.0}],
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": 10.0}
+                for h in range(12, 24)
+            ] + [
+                {"validTime": f"2026-03-05T{h:02d}:00:00+00:00/PT1H", "value": 8.0}
+                for h in range(0, 12)
+            ],
+        },
+        "apparentTemperature": {
+            "uom": "wmoUnit:degC",
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": 24.0}
+                for h in range(12, 24)
+            ] + [
+                {"validTime": f"2026-03-05T{h:02d}:00:00+00:00/PT1H", "value": 12.0}
+                for h in range(0, 12)
+            ],
+        },
+        "pressure": {
+            "uom": "wmoUnit:Pa",
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": 101325.0}
+                for h in range(12, 24)
+            ] + [
+                {"validTime": f"2026-03-05T{h:02d}:00:00+00:00/PT1H", "value": 101200.0}
+                for h in range(0, 12)
+            ],
+        },
+        "snowfallAmount": {
+            "uom": "wmoUnit:mm",
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": 2.5}
+                for h in range(12, 24)
+            ] + [
+                {"validTime": f"2026-03-05T{h:02d}:00:00+00:00/PT1H", "value": 0.0}
+                for h in range(0, 12)
+            ],
+        },
+        "iceAccumulation": {
+            "uom": "wmoUnit:mm",
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": 0.0}
+                for h in range(12, 24)
+            ] + [
+                {"validTime": f"2026-03-05T{h:02d}:00:00+00:00/PT1H", "value": 0.0}
+                for h in range(0, 12)
+            ],
         },
         "windSpeed": {
             "uom": "wmoUnit:km_h-1",
@@ -124,6 +171,79 @@ MOCK_GRIDPOINT_RESPONSE = {
         },
         "elevation": {"value": 255, "unitCode": "wmoUnit:m"},
         "updateTime": "2026-03-04T12:00:00+00:00",
+    }
+}
+
+# cold observation with sub-zero dewpoint for frost point tests
+MOCK_OBSERVATION_COLD = {
+    "timestamp": "2026-01-15T08:00:00+00:00",
+    "textDescription": "Clear",
+    "temperature": {"value": -5.0, "unitCode": "wmoUnit:degC"},
+    "dewpoint": {"value": -10.0, "unitCode": "wmoUnit:degC"},
+    "relativeHumidity": {"value": 65.0, "unitCode": "wmoUnit:percent"},
+    "windSpeed": {"value": 12.0, "unitCode": "wmoUnit:km_h-1"},
+    "windDirection": {"value": 315, "unitCode": "wmoUnit:degree_(angle)"},
+    "windGust": {"value": 25.0, "unitCode": "wmoUnit:km_h-1"},
+    "barometricPressure": {"value": 102000, "unitCode": "wmoUnit:Pa"},
+    "visibility": {"value": 16093, "unitCode": "wmoUnit:m"},
+    "heatIndex": {"value": None, "unitCode": "wmoUnit:degC"},
+    "windChill": {"value": -12.0, "unitCode": "wmoUnit:degC"},
+    "cloudLayers": [],
+    "presentWeather": [],
+    "rawMessage": "KMSP 150800Z 31508KT 10SM CLR M05/M10 A3012",
+}
+
+# gridpoint data with sub-zero dewpoints for frost point forecast tests
+MOCK_GRIDPOINT_COLD = {
+    "properties": {
+        "temperature": {
+            "uom": "wmoUnit:degC",
+            "values": [{"validTime": "2026-03-04T12:00:00+00:00/PT1H", "value": -5.0}],
+        },
+        "dewpoint": {
+            "uom": "wmoUnit:degC",
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": -10.0}
+                for h in range(12, 24)
+            ] + [
+                {"validTime": f"2026-03-05T{h:02d}:00:00+00:00/PT1H", "value": -15.0}
+                for h in range(0, 12)
+            ],
+        },
+        "apparentTemperature": {
+            "uom": "wmoUnit:degC",
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": -12.0}
+                for h in range(12, 24)
+            ],
+        },
+        "pressure": {
+            "uom": "wmoUnit:Pa",
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": 102000.0}
+                for h in range(12, 24)
+            ],
+        },
+        "snowfallAmount": {
+            "uom": "wmoUnit:mm",
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": 0.0}
+                for h in range(12, 24)
+            ],
+        },
+        "iceAccumulation": {
+            "uom": "wmoUnit:mm",
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": 0.0}
+                for h in range(12, 24)
+            ],
+        },
+        "windSpeed": {
+            "uom": "wmoUnit:km_h-1",
+            "values": [{"validTime": "2026-03-04T12:00:00+00:00/PT1H", "value": 15}],
+        },
+        "elevation": {"value": 255, "unitCode": "wmoUnit:m"},
+        "updateTime": "2026-01-15T08:00:00+00:00",
     }
 }
 
