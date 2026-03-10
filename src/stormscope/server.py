@@ -53,13 +53,6 @@ mcp = FastMCP(
 
 _VALID_DETAILS = {"standard", "full"}
 
-_UNITS_DOC = (
-    'units: "us" or "si" for base system, with optional field overrides: '
-    '"us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb), '
-    "wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm)."
-)
-
-
 def _validate_units(units: str | None) -> dict | None:
     """validate units string, return error dict if invalid."""
     if units is None:
@@ -102,7 +95,7 @@ async def get_conditions(
     detail: str = "standard",
     units: str | None = None,
 ) -> dict:
-    f"""Get current weather conditions for a US location.
+    """Get current weather conditions for a US location.
 
     Use when: "What's the weather right now?", "How hot is it?", "Is it windy?"
 
@@ -111,7 +104,9 @@ async def get_conditions(
 
     Omit lat/lon to use configured primary location.
 
-    {_UNITS_DOC}
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
@@ -134,7 +129,7 @@ async def get_forecast(
     hours: int = 24,
     units: str | None = None,
 ) -> dict:
-    f"""Get forecast for a US location.
+    """Get forecast for a US location.
 
     Use when: "What's the forecast?", "Will it rain?", "Weather this week?"
 
@@ -145,7 +140,9 @@ async def get_forecast(
     days (1-7) controls daily mode. hours (1-48) controls hourly mode.
     Omit lat/lon to use configured primary location.
 
-    {_UNITS_DOC}
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     err = _validate_units(units)
     if err:
@@ -169,7 +166,7 @@ async def get_alerts(
     detail: str = "standard",
     units: str | None = None,
 ) -> dict:
-    f"""Get active weather alerts for a US location.
+    """Get active weather alerts for a US location.
 
     Use proactively at conversation start. Also: "Any warnings?", "Is it safe to travel?"
 
@@ -179,7 +176,9 @@ async def get_alerts(
 
     Omit lat/lon to use configured primary location.
 
-    {_UNITS_DOC}
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
@@ -201,7 +200,7 @@ async def get_spc_outlook(
     day: int = 1,
     units: str | None = None,
 ) -> dict:
-    f"""Check SPC severe weather outlook for a US location.
+    """Check SPC severe weather outlook for a US location.
 
     Use when: "Severe weather risk?", "Storm outlook?", "Should I worry about storms?"
 
@@ -211,7 +210,9 @@ async def get_spc_outlook(
     day: 1=today, 2=tomorrow, 3=day after.
     Omit lat/lon to use configured primary location.
 
-    {_UNITS_DOC}
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     err = _validate_units(units)
     if err:
@@ -225,7 +226,7 @@ async def get_spc_outlook(
 
 @mcp.tool()
 async def get_national_outlook(day: int = 1, units: str | None = None) -> dict:
-    f"""Get CONUS-wide SPC severe weather risk areas.
+    """Get CONUS-wide SPC severe weather risk areas.
 
     Use when: "Any severe weather in the US?", "National storm outlook?"
 
@@ -234,7 +235,9 @@ async def get_national_outlook(day: int = 1, units: str | None = None) -> dict:
 
     day: 1=today, 2=tomorrow, 3=day after.
 
-    {_UNITS_DOC}
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     err = _validate_units(units)
     if err:
@@ -248,7 +251,7 @@ async def get_radar(
     longitude: float | None = None,
     units: str | None = None,
 ) -> dict:
-    f"""Get NEXRAD radar info with textual weather summary and clickable links.
+    """Get NEXRAD radar info with textual weather summary and clickable links.
 
     Use when: "Show me radar", "What does radar look like?", "Radar imagery?"
 
@@ -259,7 +262,9 @@ async def get_radar(
 
     Omit lat/lon to use configured primary location.
 
-    {_UNITS_DOC}
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     err = _validate_units(units)
     if err:
@@ -278,7 +283,7 @@ async def get_briefing(
     detail: str = "standard",
     units: str | None = None,
 ) -> dict:
-    f"""Get a comprehensive weather briefing for a US location.
+    """Get a comprehensive weather briefing for a US location.
 
     The default tool for "What's the weather?" — combines conditions, forecast,
     alerts, and SPC outlook.
@@ -289,7 +294,9 @@ async def get_briefing(
 
     Omit lat/lon to use configured primary location.
 
-    {_UNITS_DOC}
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
@@ -309,7 +316,7 @@ async def get_upper_air(
     longitude: float | None = None,
     units: str | None = None,
 ) -> dict:
-    f"""Get 500mb upper-air analysis with heights, temperature, wind, and vorticity.
+    """Get 500mb upper-air analysis with heights, temperature, wind, and vorticity.
 
     Use when: "What does 500mb look like?", "Where are the troughs?",
     "Upper-air pattern?", "Jet stream?", "Vorticity?"
@@ -326,7 +333,9 @@ async def get_upper_air(
     Not US-only — uses global GFS model data via Open-Meteo.
     Omit lat/lon to use configured primary location.
 
-    {_UNITS_DOC}
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     err = _validate_units(units)
     if err:
@@ -346,7 +355,7 @@ async def get_surface_analysis(
     detail: str = "standard",
     units: str | None = None,
 ) -> dict:
-    f"""Get WPC surface analysis showing fronts, pressure centers, and warm/cold sector.
+    """Get WPC surface analysis showing fronts, pressure centers, and warm/cold sector.
 
     Use when: "Where are the fronts?", "Am I in the warm sector?",
     "Surface analysis?", "Where's the nearest low?"
@@ -365,7 +374,9 @@ async def get_surface_analysis(
 
     Omit lat/lon to use configured primary location.
 
-    {_UNITS_DOC}
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}

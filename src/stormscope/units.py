@@ -33,6 +33,8 @@ class UnitPrefs:
                 temperature="c", pressure="mb", wind="kmh",
                 distance="km", accumulation="mm",
             )
+        if system != "us":
+            raise ValueError(f"unknown unit system '{system}', must be 'us' or 'si'")
         return cls(
             temperature="f", pressure="inhg", wind="mph",
             distance="mi", accumulation="in",

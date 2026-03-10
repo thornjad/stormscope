@@ -265,9 +265,26 @@ async def get_conditions(
 _VALID_MODES = {"daily", "hourly", "raw"}
 
 
+def _extract_grid_arrays(grid_data: dict, periods: list[dict]) -> dict:
+    """precompute all enriched grid field arrays once for the period list."""
+    n = len(periods)
+    if not grid_data:
+        return {k: [None] * n for k in (
+            "dewpoint", "apparentTemperature", "pressure",
+            "snowfallAmount", "iceAccumulation",
+        )}
+    return {
+        "dewpoint": _grid_values_for_periods(grid_data.get("dewpoint", {}), periods),
+        "apparentTemperature": _grid_values_for_periods(grid_data.get("apparentTemperature", {}), periods),
+        "pressure": _grid_values_for_periods(grid_data.get("pressure", {}), periods),
+        "snowfallAmount": _grid_values_for_periods(grid_data.get("snowfallAmount", {}), periods, aggregate="sum"),
+        "iceAccumulation": _grid_values_for_periods(grid_data.get("iceAccumulation", {}), periods, aggregate="sum"),
+    }
+
+
 def _build_forecast_period(
-    period: dict, i: int, grid_data: dict, prefs: UnitPrefs,
-    periods_list: list[dict], include_daily_fields: bool = False,
+    period: dict, i: int, grid_arrays: dict, prefs: UnitPrefs,
+    include_daily_fields: bool = False,
 ) -> dict:
     """build a single forecast period dict with enriched grid fields."""
     entry: dict = {}
@@ -280,25 +297,16 @@ def _build_forecast_period(
         entry["start_time"] = period["startTime"]
 
     # dewpoint / frost point
-    dewpoints = _grid_values_for_periods(
-        grid_data.get("dewpoint", {}), periods_list,
-    ) if grid_data else [None] * len(periods_list)
-    dp_c = dewpoints[i] if i < len(dewpoints) else None
+    dp_c = grid_arrays["dewpoint"][i] if i < len(grid_arrays["dewpoint"]) else None
     dp_key = "frost_point" if dp_c is not None and dp_c < 0 else "dewpoint"
     entry[dp_key] = _fmt_temp(c_to_f(dp_c), dp_c, prefs) if dp_c is not None else "N/A"
 
     # feels like (apparent temperature)
-    apparent = _grid_values_for_periods(
-        grid_data.get("apparentTemperature", {}), periods_list,
-    ) if grid_data else [None] * len(periods_list)
-    at_c = apparent[i] if i < len(apparent) else None
+    at_c = grid_arrays["apparentTemperature"][i] if i < len(grid_arrays["apparentTemperature"]) else None
     entry["feels_like"] = _fmt_temp(c_to_f(at_c), at_c, prefs) if at_c is not None else "N/A"
 
     # pressure
-    pressures = _grid_values_for_periods(
-        grid_data.get("pressure", {}), periods_list,
-    ) if grid_data else [None] * len(periods_list)
-    pa = pressures[i] if i < len(pressures) else None
+    pa = grid_arrays["pressure"][i] if i < len(grid_arrays["pressure"]) else None
     entry["pressure"] = _fmt_pressure(pa_to_inhg(pa), pa, prefs) if pa is not None else "N/A"
 
     entry["wind"] = f"{period['windDirection']} {period['windSpeed']}"
@@ -312,18 +320,12 @@ def _build_forecast_period(
         entry["precipitation_chance"] = f"{period.get('probabilityOfPrecipitation', {}).get('value', 0) or 0}%"
 
     # snow accumulation
-    snow = _grid_values_for_periods(
-        grid_data.get("snowfallAmount", {}), periods_list, aggregate="sum",
-    ) if grid_data else [None] * len(periods_list)
-    snow_mm = snow[i] if i < len(snow) else None
+    snow_mm = grid_arrays["snowfallAmount"][i] if i < len(grid_arrays["snowfallAmount"]) else None
     if snow_mm and snow_mm > 0:
         entry["snow_accumulation"] = _fmt_accumulation(snow_mm, prefs)
 
     # ice accumulation
-    ice = _grid_values_for_periods(
-        grid_data.get("iceAccumulation", {}), periods_list, aggregate="sum",
-    ) if grid_data else [None] * len(periods_list)
-    ice_mm = ice[i] if i < len(ice) else None
+    ice_mm = grid_arrays["iceAccumulation"][i] if i < len(grid_arrays["iceAccumulation"]) else None
     if ice_mm and ice_mm > 0:
         entry["ice_accumulation"] = _fmt_accumulation(ice_mm, prefs)
 
@@ -353,10 +355,13 @@ async def get_forecast(
                 raise hourly_data
             periods = hourly_data.get("periods", [])[:hours]
             gd = grid_data if not isinstance(grid_data, Exception) else {}
+            if isinstance(grid_data, Exception):
+                logger.debug("grid data fetch failed, enriched fields unavailable: %s", grid_data)
+            arrays = _extract_grid_arrays(gd, periods)
             return {
                 "location": _location_name(point),
                 "periods": [
-                    _build_forecast_period(p, i, gd, prefs, periods)
+                    _build_forecast_period(p, i, arrays, prefs)
                     for i, p in enumerate(periods)
                 ],
             }
@@ -389,23 +394,22 @@ async def get_forecast(
         periods = periods[:max_periods]
 
         gd = grid_data if not isinstance(grid_data, Exception) else {}
+        if isinstance(grid_data, Exception):
+            logger.debug("grid data fetch failed, enriched fields unavailable: %s", grid_data)
+        arrays = _extract_grid_arrays(gd, periods)
 
         result: dict = {
             "location": _location_name(point),
             "periods": [
-                _build_forecast_period(p, i, gd, prefs, periods, include_daily_fields=True)
+                _build_forecast_period(p, i, arrays, prefs, include_daily_fields=True)
                 for i, p in enumerate(periods)
             ],
         }
 
         # pressure trend for daily mode
-        if gd:
-            pressure_vals = _grid_values_for_periods(
-                gd.get("pressure", {}), periods,
-            )
-            valid_pressures = [v for v in pressure_vals if v is not None]
-            if valid_pressures:
-                result["pressure_trend"] = _compute_trend(valid_pressures)
+        valid_pressures = [v for v in arrays["pressure"] if v is not None]
+        if valid_pressures:
+            result["pressure_trend"] = _compute_trend(valid_pressures)
 
         return result
     except ValueError as exc:
