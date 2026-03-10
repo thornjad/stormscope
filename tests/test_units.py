@@ -3,8 +3,9 @@
 import pytest
 
 from stormscope.units import (
-    c_to_f, degrees_to_cardinal, kmh_to_mph, m_to_ft, m_to_miles,
-    ms_to_mph, pa_to_hpa, pa_to_inhg,
+    UnitPrefs, c_to_f, degrees_to_cardinal, kmh_to_mph, m_to_ft,
+    m_to_miles, mm_to_inches, ms_to_mph, pa_to_hpa, pa_to_inhg,
+    parse_units,
 )
 
 
@@ -125,3 +126,97 @@ class TestDegreesToCardinal:
 
     def test_none(self):
         assert degrees_to_cardinal(None) is None
+
+
+class TestMmToInches:
+    def test_known_value(self):
+        assert round(mm_to_inches(25.4), 4) == 1.0
+
+    def test_zero(self):
+        assert mm_to_inches(0.0) == 0.0
+
+    def test_none(self):
+        assert mm_to_inches(None) is None
+
+    def test_small_value(self):
+        assert round(mm_to_inches(2.5), 2) == 0.10
+
+
+class TestUnitPrefsFromSystem:
+    def test_us_defaults(self):
+        p = UnitPrefs.from_system("us")
+        assert p.temperature == "f"
+        assert p.pressure == "inhg"
+        assert p.wind == "mph"
+        assert p.distance == "mi"
+        assert p.accumulation == "in"
+
+    def test_si_defaults(self):
+        p = UnitPrefs.from_system("si")
+        assert p.temperature == "c"
+        assert p.pressure == "mb"
+        assert p.wind == "kmh"
+        assert p.distance == "km"
+        assert p.accumulation == "mm"
+
+
+class TestParseUnits:
+    def test_none_uses_default(self):
+        p = parse_units(None, "us")
+        assert p.temperature == "f"
+
+    def test_empty_uses_default(self):
+        p = parse_units("", "si")
+        assert p.temperature == "c"
+
+    def test_us_string(self):
+        p = parse_units("us")
+        assert p.temperature == "f"
+        assert p.pressure == "inhg"
+
+    def test_si_string(self):
+        p = parse_units("si")
+        assert p.temperature == "c"
+        assert p.pressure == "mb"
+
+    def test_override_single_field(self):
+        p = parse_units("us,pressure:mb")
+        assert p.temperature == "f"
+        assert p.pressure == "mb"
+        assert p.wind == "mph"
+
+    def test_override_multiple_fields(self):
+        p = parse_units("us,pressure:mb,wind:kt")
+        assert p.pressure == "mb"
+        assert p.wind == "kt"
+        assert p.temperature == "f"
+
+    def test_si_with_override(self):
+        p = parse_units("si,wind:kt,accumulation:in")
+        assert p.temperature == "c"
+        assert p.wind == "kt"
+        assert p.accumulation == "in"
+
+    def test_invalid_system_raises(self):
+        with pytest.raises(ValueError, match="invalid unit system"):
+            parse_units("metric")
+
+    def test_invalid_override_format_raises(self):
+        with pytest.raises(ValueError, match="invalid unit override"):
+            parse_units("us,badformat")
+
+    def test_unknown_field_raises(self):
+        with pytest.raises(ValueError, match="unknown unit field"):
+            parse_units("us,humidity:pct")
+
+    def test_invalid_field_value_raises(self):
+        with pytest.raises(ValueError, match="invalid value"):
+            parse_units("us,wind:lightyears")
+
+    def test_whitespace_tolerance(self):
+        p = parse_units("us, pressure : mb")
+        assert p.pressure == "mb"
+
+    def test_case_insensitive(self):
+        p = parse_units("US,Pressure:MB")
+        assert p.pressure == "mb"
