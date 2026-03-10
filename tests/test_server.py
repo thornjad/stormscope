@@ -193,6 +193,52 @@ class TestServerValidation:
         assert "invalid hours" in result["error"]
 
 
+class TestUnitsValidation:
+    @pytest.mark.asyncio
+    @patch("stormscope.server.config")
+    async def test_invalid_units_system(self, mock_config):
+        mock_config.primary_latitude = 44.9
+        mock_config.primary_longitude = -93.2
+        mock_config.units = "us"
+        from stormscope.server import get_conditions
+        result = await get_conditions(units="metric")
+        assert "error" in result
+        assert "invalid unit system" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch("stormscope.server.config")
+    async def test_invalid_units_field(self, mock_config):
+        mock_config.primary_latitude = 44.9
+        mock_config.primary_longitude = -93.2
+        mock_config.units = "us"
+        from stormscope.server import get_forecast
+        result = await get_forecast(units="us,humidity:pct")
+        assert "error" in result
+        assert "unknown unit field" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch("stormscope.server.config")
+    async def test_invalid_units_value(self, mock_config):
+        mock_config.primary_latitude = 44.9
+        mock_config.primary_longitude = -93.2
+        mock_config.units = "us"
+        from stormscope.server import get_briefing
+        result = await get_briefing(units="us,wind:lightyears")
+        assert "error" in result
+        assert "invalid value" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch("stormscope.server.config")
+    async def test_valid_units_pass_through(self, mock_config):
+        mock_config.primary_latitude = 44.9
+        mock_config.primary_longitude = -93.2
+        mock_config.units = "us"
+        from stormscope.server import _validate_units
+        assert _validate_units("us,pressure:mb") is None
+        assert _validate_units("si") is None
+        assert _validate_units(None) is None
+
+
 class TestMCPRegistration:
     @pytest.mark.asyncio
     async def test_all_tools_registered(self):
