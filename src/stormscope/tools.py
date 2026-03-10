@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 
 from stormscope.config import config
 from stormscope.iem import IEMClient
@@ -112,7 +112,7 @@ def _fmt_pressure(inhg: float | None, pascals: float | None, prefs: UnitPrefs) -
 
 def _fmt_gust(speed: float | None, prefs: UnitPrefs) -> str:
     if speed is None:
-        return "calm"
+        return "Calm"
     unit = _WIND_UNITS[prefs.wind]
     return f"{round(speed)} {unit}"
 
@@ -151,13 +151,23 @@ def _grid_values_for_periods(
         return [None] * len(periods)
 
     parsed = []
+    skipped = 0
     for v in values:
         try:
             vtime = datetime.fromisoformat(v["validTime"].split("/")[0])
+            if vtime.tzinfo is None:
+                vtime = vtime.replace(tzinfo=timezone.utc)
             if v["value"] is not None:
                 parsed.append((vtime, v["value"]))
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError):
+            skipped += 1
             continue
+
+    if skipped > 0:
+        if skipped == len(values):
+            logger.warning("all %d grid values skipped due to parse errors", skipped)
+        else:
+            logger.debug("skipped %d/%d grid values due to parse errors", skipped, len(values))
 
     if not parsed:
         return [None] * len(periods)
@@ -166,9 +176,13 @@ def _grid_values_for_periods(
     for period in periods:
         try:
             start = datetime.fromisoformat(period["startTime"])
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
             end_str = period.get("endTime")
             if end_str:
                 end = datetime.fromisoformat(end_str)
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=timezone.utc)
                 matching = [c for t, c in parsed if start <= t < end]
             else:
                 closest = min(parsed, key=lambda p: abs((p[0] - start).total_seconds()))
@@ -181,7 +195,8 @@ def _grid_values_for_periods(
                     result.append(sum(matching) / len(matching))
             else:
                 result.append(None)
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError) as exc:
+            logger.debug("grid value aggregation failed for period: %s", exc)
             result.append(None)
     return result
 
@@ -231,8 +246,8 @@ async def get_conditions(
         gust_speed = _convert_obs_wind(gust_kmh, prefs)
         cardinal = degrees_to_cardinal(wind_deg)
 
-        # frost point vs dewpoint labeling
-        dp_key = "frost_point" if dewpoint_c is not None and dewpoint_c < 0 else "dewpoint"
+        # frost point vs dewpoint labeling (NWS uses frost point at and below 0°C)
+        dp_key = "frost_point" if dewpoint_c is not None and dewpoint_c <= 0 else "dewpoint"
 
         result = {
             "temperature": _fmt_temp(temp_f, temp_c, prefs),
@@ -298,7 +313,7 @@ def _build_forecast_period(
 
     # dewpoint / frost point
     dp_c = grid_arrays["dewpoint"][i] if i < len(grid_arrays["dewpoint"]) else None
-    dp_key = "frost_point" if dp_c is not None and dp_c < 0 else "dewpoint"
+    dp_key = "frost_point" if dp_c is not None and dp_c <= 0 else "dewpoint"
     entry[dp_key] = _fmt_temp(c_to_f(dp_c), dp_c, prefs) if dp_c is not None else "N/A"
 
     # feels like (apparent temperature)
@@ -658,15 +673,15 @@ async def get_briefing(
         extra_tasks = []
         risk_level = severe.get("risk_level", "NONE") if isinstance(severe, dict) else "NONE"
         if risk_level not in ("NONE", "TSTM"):
-            extra_tasks.append(("probabilistic_tornado", get_spc_outlook(latitude, longitude, "tornado")))
-            extra_tasks.append(("probabilistic_wind", get_spc_outlook(latitude, longitude, "wind")))
-            extra_tasks.append(("probabilistic_hail", get_spc_outlook(latitude, longitude, "hail")))
+            extra_tasks.append(("probabilistic_tornado", get_spc_outlook(latitude, longitude, "tornado", units=units)))
+            extra_tasks.append(("probabilistic_wind", get_spc_outlook(latitude, longitude, "wind", units=units)))
+            extra_tasks.append(("probabilistic_hail", get_spc_outlook(latitude, longitude, "hail", units=units)))
 
-        extra_tasks.append(("national_day1", get_national_outlook(1)))
-        extra_tasks.append(("radar", get_radar(latitude, longitude)))
+        extra_tasks.append(("national_day1", get_national_outlook(1, units=units)))
+        extra_tasks.append(("radar", get_radar(latitude, longitude, units=units)))
 
         for day in (2, 3):
-            extra_tasks.append((f"spc_day{day}", get_spc_outlook(latitude, longitude, "categorical", day)))
+            extra_tasks.append((f"spc_day{day}", get_spc_outlook(latitude, longitude, "categorical", day, units=units)))
 
         names, coros = zip(*extra_tasks)
         extra_results = await asyncio.gather(*coros, return_exceptions=True)
