@@ -3,13 +3,18 @@
 import asyncio
 import logging
 import math
+from datetime import datetime
 
 from stormscope.config import config
 from stormscope.iem import IEMClient
 from stormscope.nws import NWSClient
 from stormscope.openmeteo import OpenMeteoClient
 from stormscope.spc import SPCClient
-from stormscope.units import c_to_f, degrees_to_cardinal, gpm_to_dam, kmh_to_mph, m_to_miles, ms_to_kt, pa_to_inhg
+from stormscope.units import (
+    UnitPrefs, c_to_f, degrees_to_cardinal, gpm_to_dam, kmh_to_mph,
+    m_to_miles, mm_to_inches, ms_to_kt, ms_to_mph, pa_to_inhg,
+    parse_units,
+)
 from stormscope.vorticity import compute_vorticity
 from stormscope.wpc import WPCClient, FRONT_TYPES, CENTER_TYPES
 
@@ -31,10 +36,6 @@ async def shutdown():
     await _wpc.close()
 
 
-def _is_si() -> bool:
-    return config.units == "si"
-
-
 def _obs_value(obs: dict, field: str) -> float | None:
     entry = obs.get(field)
     if entry is None:
@@ -42,8 +43,8 @@ def _obs_value(obs: dict, field: str) -> float | None:
     return entry.get("value")
 
 
-def _fmt_temp(fahrenheit: float | None, celsius: float | None = None) -> str:
-    if _is_si():
+def _fmt_temp(fahrenheit: float | None, celsius: float | None, prefs: UnitPrefs) -> str:
+    if prefs.temperature == "c":
         if celsius is None:
             return "N/A"
         return f"{round(celsius)}°C"
@@ -52,13 +53,30 @@ def _fmt_temp(fahrenheit: float | None, celsius: float | None = None) -> str:
     return f"{round(fahrenheit)}°F"
 
 
-def _fmt_wind(speed: float | None, direction: str | None) -> str:
+_WIND_UNITS = {"mph": "mph", "kt": "kt", "kmh": "km/h", "ms": "m/s"}
+
+
+def _convert_obs_wind(kmh: float | None, prefs: UnitPrefs) -> float | None:
+    """convert observation wind from km/h to the preferred unit."""
+    if kmh is None:
+        return None
+    if prefs.wind == "kmh":
+        return kmh
+    if prefs.wind == "mph":
+        return kmh_to_mph(kmh)
+    if prefs.wind == "kt":
+        return ms_to_kt(kmh / 3.6)
+    # m/s
+    return kmh / 3.6
+
+
+def _fmt_wind(speed: float | None, direction: str | None, prefs: UnitPrefs) -> str:
     if speed is None:
         return "Calm"
     s = round(speed)
     if s == 0:
         return "Calm"
-    unit = "km/h" if _is_si() else "mph"
+    unit = _WIND_UNITS[prefs.wind]
     if direction:
         return f"{direction} {s} {unit}"
     return f"{s} {unit}"
@@ -70,8 +88,8 @@ def _fmt_humidity(value: float | None) -> str:
     return f"{round(value)}%"
 
 
-def _fmt_visibility(miles: float | None, meters: float | None = None) -> str:
-    if _is_si():
+def _fmt_visibility(miles: float | None, meters: float | None, prefs: UnitPrefs) -> str:
+    if prefs.distance == "km":
         if meters is None:
             return "N/A"
         km = meters / 1000
@@ -81,22 +99,33 @@ def _fmt_visibility(miles: float | None, meters: float | None = None) -> str:
     return f"{miles:.1f} mi"
 
 
-def _fmt_pressure(inhg: float | None, pascals: float | None = None) -> str:
-    if _is_si():
+def _fmt_pressure(inhg: float | None, pascals: float | None, prefs: UnitPrefs) -> str:
+    if prefs.pressure == "mb":
         if pascals is None:
             return "N/A"
         hpa = pascals / 100
-        return f"{hpa:.1f} hPa"
+        return f"{hpa:.1f} mb"
     if inhg is None:
         return "N/A"
     return f"{inhg:.2f} inHg"
 
 
-def _fmt_gust(speed: float | None) -> str:
+def _fmt_gust(speed: float | None, prefs: UnitPrefs) -> str:
     if speed is None:
         return "calm"
-    unit = "km/h" if _is_si() else "mph"
+    unit = _WIND_UNITS[prefs.wind]
     return f"{round(speed)} {unit}"
+
+
+def _fmt_accumulation(mm: float | None, prefs: UnitPrefs) -> str:
+    if mm is None or mm == 0:
+        return "0"
+    if prefs.accumulation == "in":
+        inches = mm_to_inches(mm)
+        return f"{inches:.2f} in"
+    if prefs.accumulation == "cm":
+        return f"{mm / 10:.1f} cm"
+    return f"{mm:.1f} mm"
 
 
 def _location_name(point: dict) -> str:
@@ -106,6 +135,55 @@ def _location_name(point: dict) -> str:
     if state:
         return f"{city}, {state}"
     return city
+
+
+def _grid_values_for_periods(
+    grid_field: dict, periods: list[dict], aggregate: str = "avg",
+) -> list[float | None]:
+    """extract aggregated values per forecast period from gridpoint time series.
+
+    aggregate="avg" averages values in the period (temperature, pressure, dewpoint).
+    aggregate="sum" sums values (snowfall, ice accumulation).
+    returns raw floats; callers format with the appropriate _fmt_* function.
+    """
+    values = grid_field.get("values", [])
+    if not values:
+        return [None] * len(periods)
+
+    parsed = []
+    for v in values:
+        try:
+            vtime = datetime.fromisoformat(v["validTime"].split("/")[0])
+            if v["value"] is not None:
+                parsed.append((vtime, v["value"]))
+        except (KeyError, ValueError):
+            continue
+
+    if not parsed:
+        return [None] * len(periods)
+
+    result = []
+    for period in periods:
+        try:
+            start = datetime.fromisoformat(period["startTime"])
+            end_str = period.get("endTime")
+            if end_str:
+                end = datetime.fromisoformat(end_str)
+                matching = [c for t, c in parsed if start <= t < end]
+            else:
+                closest = min(parsed, key=lambda p: abs((p[0] - start).total_seconds()))
+                matching = [closest[1]]
+
+            if matching:
+                if aggregate == "sum":
+                    result.append(sum(matching))
+                else:
+                    result.append(sum(matching) / len(matching))
+            else:
+                result.append(None)
+        except (KeyError, ValueError):
+            result.append(None)
+    return result
 
 
 _SEVERITY_ORDER = {
@@ -119,8 +197,10 @@ _SEVERITY_ORDER = {
 
 async def get_conditions(
     latitude: float, longitude: float, detail: str = "standard",
+    units: str | None = None,
 ) -> dict:
     """Get current weather conditions."""
+    prefs = parse_units(units, config.units)
     try:
         point = await _nws.get_point(latitude, longitude)
         stations = await _nws.get_stations(point["observationStations"])
@@ -145,27 +225,30 @@ async def get_conditions(
         fl = c_to_f(feels_like_c)
         feels_like_f = fl if fl is not None else temp_f
 
-        wind_speed = wind_kmh if _is_si() else kmh_to_mph(wind_kmh)
-        gust_speed = gust_kmh if _is_si() else kmh_to_mph(gust_kmh)
+        dewpoint_c = _obs_value(obs, "dewpoint")
+        dewpoint_f = c_to_f(dewpoint_c)
+        wind_speed = _convert_obs_wind(wind_kmh, prefs)
+        gust_speed = _convert_obs_wind(gust_kmh, prefs)
         cardinal = degrees_to_cardinal(wind_deg)
 
+        # frost point vs dewpoint labeling
+        dp_key = "frost_point" if dewpoint_c is not None and dewpoint_c < 0 else "dewpoint"
+
         result = {
-            "temperature": _fmt_temp(temp_f, temp_c),
-            "feels_like": _fmt_temp(feels_like_f, feels_like_c if feels_like_c is not None else temp_c),
+            "temperature": _fmt_temp(temp_f, temp_c, prefs),
+            "feels_like": _fmt_temp(feels_like_f, feels_like_c if feels_like_c is not None else temp_c, prefs),
+            dp_key: _fmt_temp(dewpoint_f, dewpoint_c, prefs),
             "humidity": _fmt_humidity(humidity),
-            "wind": _fmt_wind(wind_speed, cardinal),
-            "wind_gust": _fmt_gust(gust_speed),
+            "wind": _fmt_wind(wind_speed, cardinal, prefs),
+            "wind_gust": _fmt_gust(gust_speed, prefs),
             "sky_condition": obs.get("textDescription", "N/A"),
-            "visibility": _fmt_visibility(m_to_miles(vis_m), vis_m),
-            "pressure": _fmt_pressure(pa_to_inhg(pressure_pa), pressure_pa),
+            "visibility": _fmt_visibility(m_to_miles(vis_m), vis_m, prefs),
+            "pressure": _fmt_pressure(pa_to_inhg(pressure_pa), pressure_pa, prefs),
             "station_name": station.get("name", "Unknown"),
             "observation_time": obs.get("timestamp", "N/A"),
         }
 
         if detail == "full":
-            dewpoint_c = _obs_value(obs, "dewpoint")
-            dewpoint_f = c_to_f(dewpoint_c)
-            result["dewpoint"] = _fmt_temp(dewpoint_f, dewpoint_c)
             result["cloud_layers"] = obs.get("cloudLayers", [])
             result["present_weather"] = obs.get("presentWeather", [])
             result["wind_direction"] = cardinal or "N/A"
@@ -182,31 +265,99 @@ async def get_conditions(
 _VALID_MODES = {"daily", "hourly", "raw"}
 
 
+def _build_forecast_period(
+    period: dict, i: int, grid_data: dict, prefs: UnitPrefs,
+    periods_list: list[dict], include_daily_fields: bool = False,
+) -> dict:
+    """build a single forecast period dict with enriched grid fields."""
+    entry: dict = {}
+    if include_daily_fields:
+        entry["name"] = period["name"]
+
+    entry["temperature"] = f"{period['temperature']}°{period['temperatureUnit']}"
+
+    if not include_daily_fields:
+        entry["start_time"] = period["startTime"]
+
+    # dewpoint / frost point
+    dewpoints = _grid_values_for_periods(
+        grid_data.get("dewpoint", {}), periods_list,
+    ) if grid_data else [None] * len(periods_list)
+    dp_c = dewpoints[i] if i < len(dewpoints) else None
+    dp_key = "frost_point" if dp_c is not None and dp_c < 0 else "dewpoint"
+    entry[dp_key] = _fmt_temp(c_to_f(dp_c), dp_c, prefs) if dp_c is not None else "N/A"
+
+    # feels like (apparent temperature)
+    apparent = _grid_values_for_periods(
+        grid_data.get("apparentTemperature", {}), periods_list,
+    ) if grid_data else [None] * len(periods_list)
+    at_c = apparent[i] if i < len(apparent) else None
+    entry["feels_like"] = _fmt_temp(c_to_f(at_c), at_c, prefs) if at_c is not None else "N/A"
+
+    # pressure
+    pressures = _grid_values_for_periods(
+        grid_data.get("pressure", {}), periods_list,
+    ) if grid_data else [None] * len(periods_list)
+    pa = pressures[i] if i < len(pressures) else None
+    entry["pressure"] = _fmt_pressure(pa_to_inhg(pa), pa, prefs) if pa is not None else "N/A"
+
+    entry["wind"] = f"{period['windDirection']} {period['windSpeed']}"
+    entry["forecast"] = period["shortForecast"]
+
+    if include_daily_fields:
+        entry["detailed"] = period["detailedForecast"]
+        entry["is_daytime"] = period["isDaytime"]
+
+    if not include_daily_fields:
+        entry["precipitation_chance"] = f"{period.get('probabilityOfPrecipitation', {}).get('value', 0) or 0}%"
+
+    # snow accumulation
+    snow = _grid_values_for_periods(
+        grid_data.get("snowfallAmount", {}), periods_list, aggregate="sum",
+    ) if grid_data else [None] * len(periods_list)
+    snow_mm = snow[i] if i < len(snow) else None
+    if snow_mm and snow_mm > 0:
+        entry["snow_accumulation"] = _fmt_accumulation(snow_mm, prefs)
+
+    # ice accumulation
+    ice = _grid_values_for_periods(
+        grid_data.get("iceAccumulation", {}), periods_list, aggregate="sum",
+    ) if grid_data else [None] * len(periods_list)
+    ice_mm = ice[i] if i < len(ice) else None
+    if ice_mm and ice_mm > 0:
+        entry["ice_accumulation"] = _fmt_accumulation(ice_mm, prefs)
+
+    return entry
+
+
 async def get_forecast(
     latitude: float, longitude: float,
     mode: str = "daily", days: int = 7, hours: int = 24,
+    units: str | None = None,
 ) -> dict:
     """Get forecast: daily (12h periods), hourly, or raw gridpoint data."""
     if mode not in _VALID_MODES:
         return {"error": f"invalid mode '{mode}', must be one of: daily, hourly, raw"}
+    prefs = parse_units(units, config.units)
     try:
         point = await _nws.get_point(latitude, longitude)
         wfo, x, y = point["gridId"], point["gridX"], point["gridY"]
 
         if mode == "hourly":
-            data = await _nws.get_hourly_forecast(wfo, x, y)
-            periods = data.get("periods", [])[:hours]
+            hourly_data, grid_data = await asyncio.gather(
+                _nws.get_hourly_forecast(wfo, x, y),
+                _nws.get_detailed_forecast(wfo, x, y),
+                return_exceptions=True,
+            )
+            if isinstance(hourly_data, Exception):
+                raise hourly_data
+            periods = hourly_data.get("periods", [])[:hours]
+            gd = grid_data if not isinstance(grid_data, Exception) else {}
             return {
                 "location": _location_name(point),
                 "periods": [
-                    {
-                        "start_time": p["startTime"],
-                        "temperature": f"{p['temperature']}°{p['temperatureUnit']}",
-                        "wind": f"{p['windDirection']} {p['windSpeed']}",
-                        "forecast": p["shortForecast"],
-                        "precipitation_chance": f"{p.get('probabilityOfPrecipitation', {}).get('value', 0) or 0}%",
-                    }
-                    for p in periods
+                    _build_forecast_period(p, i, gd, prefs, periods)
+                    for i, p in enumerate(periods)
                 ],
             }
 
@@ -215,6 +366,8 @@ async def get_forecast(
             params = [
                 "temperature", "dewpoint", "windSpeed", "windDirection",
                 "probabilityOfPrecipitation", "skyCover", "weather",
+                "apparentTemperature", "pressure", "snowfallAmount",
+                "iceAccumulation",
             ]
             return {
                 "location": _location_name(point),
@@ -224,25 +377,37 @@ async def get_forecast(
             }
 
         # daily (default)
-        data = await _nws.get_forecast(wfo, x, y)
-        periods = data.get("periods", [])
+        forecast_data, grid_data = await asyncio.gather(
+            _nws.get_forecast(wfo, x, y),
+            _nws.get_detailed_forecast(wfo, x, y),
+            return_exceptions=True,
+        )
+        if isinstance(forecast_data, Exception):
+            raise forecast_data
+        periods = forecast_data.get("periods", [])
         max_periods = days * 2
         periods = periods[:max_periods]
 
-        return {
+        gd = grid_data if not isinstance(grid_data, Exception) else {}
+
+        result: dict = {
             "location": _location_name(point),
             "periods": [
-                {
-                    "name": p["name"],
-                    "temperature": f"{p['temperature']}°{p['temperatureUnit']}",
-                    "wind": f"{p['windDirection']} {p['windSpeed']}",
-                    "forecast": p["shortForecast"],
-                    "detailed": p["detailedForecast"],
-                    "is_daytime": p["isDaytime"],
-                }
-                for p in periods
+                _build_forecast_period(p, i, gd, prefs, periods, include_daily_fields=True)
+                for i, p in enumerate(periods)
             ],
         }
+
+        # pressure trend for daily mode
+        if gd:
+            pressure_vals = _grid_values_for_periods(
+                gd.get("pressure", {}), periods,
+            )
+            valid_pressures = [v for v in pressure_vals if v is not None]
+            if valid_pressures:
+                result["pressure_trend"] = _compute_trend(valid_pressures)
+
+        return result
     except ValueError as exc:
         return {"error": str(exc)}
     except Exception as exc:
@@ -253,6 +418,7 @@ async def get_forecast(
 async def get_alerts(
     latitude: float, longitude: float,
     severity_filter: str | None = None, detail: str = "standard",
+    units: str | None = None,
 ) -> dict:
     """Get active weather alerts."""
     try:
@@ -320,6 +486,7 @@ _VALID_OUTLOOK_TYPES = {"categorical", "tornado", "wind", "hail"}
 async def get_spc_outlook(
     latitude: float, longitude: float,
     outlook_type: str = "categorical", day: int = 1,
+    units: str | None = None,
 ) -> dict:
     """Get SPC outlook for a point — categorical or probabilistic."""
     if day < 1 or day > 3:
@@ -329,7 +496,7 @@ async def get_spc_outlook(
     return await _spc.get_spc_outlook(latitude, longitude, day, outlook_type)
 
 
-async def get_national_outlook(day: int = 1) -> dict:
+async def get_national_outlook(day: int = 1, units: str | None = None) -> dict:
     """Get CONUS-wide SPC risk areas."""
     if day < 1 or day > 3:
         return {"error": f"invalid day {day}, must be 1-3"}
@@ -382,7 +549,7 @@ def _build_radar_summary(obs: dict, hourly_periods: list[dict]) -> str:
     return ". ".join(parts) + "." if parts else "No observation data available."
 
 
-async def get_radar(latitude: float, longitude: float) -> dict:
+async def get_radar(latitude: float, longitude: float, units: str | None = None) -> dict:
     """Get NEXRAD radar metadata, textual summary, and clickable links."""
     try:
         point = await _nws.get_point(latitude, longitude)
@@ -449,13 +616,14 @@ async def get_radar(latitude: float, longitude: float) -> dict:
 
 async def get_briefing(
     latitude: float, longitude: float, detail: str = "standard",
+    units: str | None = None,
 ) -> dict:
     """Comprehensive weather briefing."""
     tasks = [
-        get_conditions(latitude, longitude, detail),
-        get_forecast(latitude, longitude, mode="daily", days=1),
-        get_alerts(latitude, longitude, detail=detail),
-        get_spc_outlook(latitude, longitude, outlook_type="categorical"),
+        get_conditions(latitude, longitude, detail, units=units),
+        get_forecast(latitude, longitude, mode="daily", days=1, units=units),
+        get_alerts(latitude, longitude, detail=detail, units=units),
+        get_spc_outlook(latitude, longitude, outlook_type="categorical", units=units),
     ]
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -518,15 +686,21 @@ def _fmt_height_dam(gpm: float | None) -> str:
     return f"{round(dam)} dam"
 
 
-def _fmt_upper_wind(speed_ms: float | None, direction: float | None) -> str:
+def _fmt_upper_wind(speed_ms: float | None, direction: float | None, prefs: UnitPrefs) -> str:
     if speed_ms is None:
         return "N/A"
     if round(speed_ms) == 0:
         return "Calm"
     cardinal = degrees_to_cardinal(direction)
-    if _is_si():
+    if prefs.wind == "ms":
         s = round(speed_ms)
         unit = "m/s"
+    elif prefs.wind == "kmh":
+        s = round(speed_ms * 3.6)
+        unit = "km/h"
+    elif prefs.wind == "mph":
+        s = round(ms_to_mph(speed_ms))
+        unit = "mph"
     else:
         s = round(ms_to_kt(speed_ms))
         unit = "kt"
@@ -535,10 +709,10 @@ def _fmt_upper_wind(speed_ms: float | None, direction: float | None) -> str:
     return f"{s} {unit}"
 
 
-def _fmt_upper_temp(celsius: float | None) -> str:
+def _fmt_upper_temp(celsius: float | None, prefs: UnitPrefs) -> str:
     if celsius is None:
         return "N/A"
-    if _is_si():
+    if prefs.temperature == "c":
         return f"{round(celsius)}°C"
     f = c_to_f(celsius)
     return f"{round(f)}°F"
@@ -567,8 +741,11 @@ def _compute_trend(values: list[float]) -> str:
     return "steady"
 
 
-async def get_upper_air(latitude: float, longitude: float) -> dict:
+async def get_upper_air(
+    latitude: float, longitude: float, units: str | None = None,
+) -> dict:
     """get 500mb upper-air analysis with derived vorticity."""
+    prefs = parse_units(units, config.units)
     try:
         data = await _openmeteo.get_upper_air(latitude, longitude)
         center = data["center"]
@@ -620,8 +797,8 @@ async def get_upper_air(latitude: float, longitude: float) -> dict:
             time_series.append({
                 "time": times[i],
                 "height": _fmt_height_dam(h),
-                "temperature": _fmt_upper_temp(t),
-                "wind": _fmt_upper_wind(spd, d),
+                "temperature": _fmt_upper_temp(t, prefs),
+                "wind": _fmt_upper_wind(spd, d, prefs),
                 "relative_vorticity": rel_str,
                 "absolute_vorticity": abs_str,
             })
@@ -729,8 +906,8 @@ def _which_side_of_front(lat: float, lon: float, coords: list, front_type: str) 
     return "warm side (ahead of front)"
 
 
-def _fmt_distance(km: float) -> str:
-    if _is_si():
+def _fmt_distance(km: float, prefs: UnitPrefs) -> str:
+    if prefs.distance == "km":
         return f"{round(km)} km"
     mi = km / _KM_PER_MI
     return f"{round(mi)} mi"
@@ -738,10 +915,12 @@ def _fmt_distance(km: float) -> str:
 
 async def get_surface_analysis(
     latitude: float, longitude: float, day: int = 1, detail: str = "standard",
+    units: str | None = None,
 ) -> dict:
     """get WPC surface analysis with fronts and pressure centers."""
     if day < 1 or day > 3:
         return {"error": f"invalid day {day}, must be 1-3"}
+    prefs = parse_units(units, config.units)
     try:
         fronts_data, centers_data = await _wpc.get_surface_analysis(day)
 
@@ -768,7 +947,7 @@ async def get_surface_analysis(
             cardinal = degrees_to_cardinal(bearing)
             entry = {
                 "type": feat_type,
-                "distance": _fmt_distance(dist),
+                "distance": _fmt_distance(dist, prefs),
                 "distance_km": round(dist, 1),
                 "bearing": cardinal,
             }
@@ -796,7 +975,7 @@ async def get_surface_analysis(
             cardinal = degrees_to_cardinal(bearing)
             entry = {
                 "type": center_type,
-                "distance": _fmt_distance(dist),
+                "distance": _fmt_distance(dist, prefs),
                 "distance_km": round(dist, 1),
                 "bearing": cardinal,
             }
@@ -809,9 +988,9 @@ async def get_surface_analysis(
 
         # build location summary from nearest cold front
         location_summary = None
-        for f in parsed_fronts:
-            if f["type"] == "cold" and f.get("position"):
-                location_summary = f"{f['position']} — cold front {f['distance']} to the {f['bearing']}"
+        for fr in parsed_fronts:
+            if fr["type"] == "cold" and fr.get("position"):
+                location_summary = f"{fr['position']} — cold front {fr['distance']} to the {fr['bearing']}"
                 break
 
         result: dict = {
