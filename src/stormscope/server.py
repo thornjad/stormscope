@@ -99,8 +99,9 @@ async def get_conditions(
 
     Use when: "What's the weather right now?", "How hot is it?", "Is it windy?"
 
-    detail="standard": temperature, feels-like, humidity, wind, sky, visibility, pressure.
-    detail="full": adds dewpoint, cloud layers, present weather, raw METAR.
+    detail="standard": temperature, feels-like, dewpoint (or frost_point when <= 0C),
+    humidity, wind, sky, visibility, pressure.
+    detail="full": adds cloud layers, present weather, raw METAR.
 
     Omit lat/lon to use configured primary location.
 
@@ -140,6 +141,11 @@ async def get_forecast(
     days (1-7) controls daily mode. hours (1-48) controls hourly mode.
     Omit lat/lon to use configured primary location.
 
+    Note: the main temperature and wind fields in daily/hourly periods come from
+    NWS pre-formatted data and are always in Fahrenheit/mph. The units parameter
+    affects enriched fields: dewpoint/frost_point, feels_like, pressure, and
+    snow/ice accumulation. Use mode="raw" for full unit-agnostic gridpoint data.
+
     units: "us" or "si" for base system, with optional field overrides:
     "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
     wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
@@ -176,9 +182,8 @@ async def get_alerts(
 
     Omit lat/lon to use configured primary location.
 
-    units: "us" or "si" for base system, with optional field overrides:
-    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
-    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
+    units: accepted for API consistency but does not affect alert output.
+    Alert text is returned as-is from NWS.
     """
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
@@ -210,9 +215,8 @@ async def get_spc_outlook(
     day: 1=today, 2=tomorrow, 3=day after.
     Omit lat/lon to use configured primary location.
 
-    units: "us" or "si" for base system, with optional field overrides:
-    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
-    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
+    units: accepted for API consistency but does not affect SPC outlook output.
+    Risk levels and probabilities are unitless.
     """
     err = _validate_units(units)
     if err:
@@ -235,9 +239,8 @@ async def get_national_outlook(day: int = 1, units: str | None = None) -> dict:
 
     day: 1=today, 2=tomorrow, 3=day after.
 
-    units: "us" or "si" for base system, with optional field overrides:
-    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
-    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
+    units: accepted for API consistency but does not affect outlook output.
+    Risk levels and region descriptions are unitless.
     """
     err = _validate_units(units)
     if err:
@@ -262,9 +265,8 @@ async def get_radar(
 
     Omit lat/lon to use configured primary location.
 
-    units: "us" or "si" for base system, with optional field overrides:
-    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
-    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
+    units: accepted for API consistency but does not affect radar output.
+    Radar data is imagery-based and unitless.
     """
     err = _validate_units(units)
     if err:
