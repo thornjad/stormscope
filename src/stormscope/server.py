@@ -7,6 +7,7 @@ from fastmcp import FastMCP
 from stormscope import tools
 from stormscope.config import config
 from stormscope.geo import geolocate
+from stormscope.units import parse_units
 
 
 @asynccontextmanager
@@ -52,6 +53,16 @@ mcp = FastMCP(
 
 _VALID_DETAILS = {"standard", "full"}
 
+def _validate_units(units: str | None) -> dict | None:
+    """validate units string, return error dict if invalid."""
+    if units is None:
+        return None
+    try:
+        parse_units(units, config.units)
+        return None
+    except ValueError as exc:
+        return {"error": str(exc)}
+
 
 async def _resolve_location(
     latitude: float | None, longitude: float | None,
@@ -82,23 +93,32 @@ async def get_conditions(
     latitude: float | None = None,
     longitude: float | None = None,
     detail: str = "standard",
+    units: str | None = None,
 ) -> dict:
     """Get current weather conditions for a US location.
 
     Use when: "What's the weather right now?", "How hot is it?", "Is it windy?"
 
-    detail="standard": temperature, feels-like, humidity, wind, sky, visibility, pressure.
-    detail="full": adds dewpoint, cloud layers, present weather, raw METAR.
+    detail="standard": temperature, feels-like, dewpoint (or frost_point when <= 0C),
+    humidity, wind, sky, visibility, pressure.
+    detail="full": adds cloud layers, present weather, raw METAR.
 
     Omit lat/lon to use configured primary location.
+
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
+    err = _validate_units(units)
+    if err:
+        return err
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
-    return await tools.get_conditions(lat, lon, detail)
+    return await tools.get_conditions(lat, lon, detail, units=units)
 
 
 @mcp.tool()
@@ -108,6 +128,7 @@ async def get_forecast(
     mode: str = "daily",
     days: int = 7,
     hours: int = 24,
+    units: str | None = None,
 ) -> dict:
     """Get forecast for a US location.
 
@@ -119,7 +140,19 @@ async def get_forecast(
 
     days (1-7) controls daily mode. hours (1-48) controls hourly mode.
     Omit lat/lon to use configured primary location.
+
+    Note: the main temperature and wind fields in daily/hourly periods come from
+    NWS pre-formatted data and are always in Fahrenheit/mph. The units parameter
+    affects enriched fields: dewpoint/frost_point, feels_like, pressure, and
+    snow/ice accumulation. Use mode="raw" for full unit-agnostic gridpoint data.
+
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
+    err = _validate_units(units)
+    if err:
+        return err
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
@@ -128,7 +161,7 @@ async def get_forecast(
         return {"error": f"invalid days {days}, must be 1-7"}
     if not (1 <= hours <= 48):
         return {"error": f"invalid hours {hours}, must be 1-48"}
-    return await tools.get_forecast(lat, lon, mode, days, hours)
+    return await tools.get_forecast(lat, lon, mode, days, hours, units=units)
 
 
 @mcp.tool()
@@ -137,6 +170,7 @@ async def get_alerts(
     longitude: float | None = None,
     severity_filter: str | None = None,
     detail: str = "standard",
+    units: str | None = None,
 ) -> dict:
     """Get active weather alerts for a US location.
 
@@ -147,14 +181,20 @@ async def get_alerts(
     detail="full": adds VTEC codes, polygon geometry, areaDesc, sender.
 
     Omit lat/lon to use configured primary location.
+
+    units: accepted for API consistency but does not affect alert output.
+    Alert text is returned as-is from NWS.
     """
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
+    err = _validate_units(units)
+    if err:
+        return err
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
-    return await tools.get_alerts(lat, lon, severity_filter, detail)
+    return await tools.get_alerts(lat, lon, severity_filter, detail, units=units)
 
 
 @mcp.tool()
@@ -163,6 +203,7 @@ async def get_spc_outlook(
     longitude: float | None = None,
     outlook_type: str = "categorical",
     day: int = 1,
+    units: str | None = None,
 ) -> dict:
     """Check SPC severe weather outlook for a US location.
 
@@ -173,16 +214,22 @@ async def get_spc_outlook(
 
     day: 1=today, 2=tomorrow, 3=day after.
     Omit lat/lon to use configured primary location.
+
+    units: accepted for API consistency but does not affect SPC outlook output.
+    Risk levels and probabilities are unitless.
     """
+    err = _validate_units(units)
+    if err:
+        return err
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
-    return await tools.get_spc_outlook(lat, lon, outlook_type, day)
+    return await tools.get_spc_outlook(lat, lon, outlook_type, day, units=units)
 
 
 @mcp.tool()
-async def get_national_outlook(day: int = 1) -> dict:
+async def get_national_outlook(day: int = 1, units: str | None = None) -> dict:
     """Get CONUS-wide SPC severe weather risk areas.
 
     Use when: "Any severe weather in the US?", "National storm outlook?"
@@ -191,14 +238,21 @@ async def get_national_outlook(day: int = 1) -> dict:
     (e.g. "central Oklahoma", "northern Texas"). No lat/lon needed.
 
     day: 1=today, 2=tomorrow, 3=day after.
+
+    units: accepted for API consistency but does not affect outlook output.
+    Risk levels and region descriptions are unitless.
     """
-    return await tools.get_national_outlook(day)
+    err = _validate_units(units)
+    if err:
+        return err
+    return await tools.get_national_outlook(day, units=units)
 
 
 @mcp.tool()
 async def get_radar(
     latitude: float | None = None,
     longitude: float | None = None,
+    units: str | None = None,
 ) -> dict:
     """Get NEXRAD radar info with textual weather summary and clickable links.
 
@@ -210,12 +264,18 @@ async def get_radar(
     products, and latest scan time.
 
     Omit lat/lon to use configured primary location.
+
+    units: accepted for API consistency but does not affect radar output.
+    Radar data is imagery-based and unitless.
     """
+    err = _validate_units(units)
+    if err:
+        return err
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
-    return await tools.get_radar(lat, lon)
+    return await tools.get_radar(lat, lon, units=units)
 
 
 @mcp.tool()
@@ -223,6 +283,7 @@ async def get_briefing(
     latitude: float | None = None,
     longitude: float | None = None,
     detail: str = "standard",
+    units: str | None = None,
 ) -> dict:
     """Get a comprehensive weather briefing for a US location.
 
@@ -234,20 +295,28 @@ async def get_briefing(
     radar, and day 2-3 SPC forecasts.
 
     Omit lat/lon to use configured primary location.
+
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
+    err = _validate_units(units)
+    if err:
+        return err
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
-    return await tools.get_briefing(lat, lon, detail)
+    return await tools.get_briefing(lat, lon, detail, units=units)
 
 
 @mcp.tool()
 async def get_upper_air(
     latitude: float | None = None,
     longitude: float | None = None,
+    units: str | None = None,
 ) -> dict:
     """Get 500mb upper-air analysis with heights, temperature, wind, and vorticity.
 
@@ -265,12 +334,19 @@ async def get_upper_air(
 
     Not US-only — uses global GFS model data via Open-Meteo.
     Omit lat/lon to use configured primary location.
+
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
+    err = _validate_units(units)
+    if err:
+        return err
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
-    return await tools.get_upper_air(lat, lon)
+    return await tools.get_upper_air(lat, lon, units=units)
 
 
 @mcp.tool()
@@ -279,6 +355,7 @@ async def get_surface_analysis(
     longitude: float | None = None,
     day: int = 1,
     detail: str = "standard",
+    units: str | None = None,
 ) -> dict:
     """Get WPC surface analysis showing fronts, pressure centers, and warm/cold sector.
 
@@ -298,14 +375,21 @@ async def get_surface_analysis(
     updated ~4x/day.
 
     Omit lat/lon to use configured primary location.
+
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
+    err = _validate_units(units)
+    if err:
+        return err
     try:
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
-    return await tools.get_surface_analysis(lat, lon, day, detail)
+    return await tools.get_surface_analysis(lat, lon, day, detail, units=units)
 
 
 def main():

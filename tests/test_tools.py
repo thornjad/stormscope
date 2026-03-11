@@ -2,7 +2,11 @@
 
 from unittest.mock import AsyncMock, patch
 
-from stormscope.tools import _fmt_temp, _fmt_wind, _fmt_visibility, _fmt_pressure, _fmt_upper_wind, _fmt_vorticity
+from stormscope.tools import (
+    _fmt_accumulation, _fmt_temp, _fmt_wind, _fmt_visibility, _fmt_pressure,
+    _fmt_upper_wind, _fmt_vorticity, _fmt_distance,
+)
+from stormscope.units import UnitPrefs
 
 import pytest
 
@@ -11,8 +15,10 @@ from tests.conftest import (
     MINNEAPOLIS_LON,
     MOCK_ALERTS_RESPONSE,
     MOCK_FORECAST_RESPONSE,
+    MOCK_GRIDPOINT_COLD,
     MOCK_GRIDPOINT_RESPONSE,
     MOCK_HOURLY_FORECAST_RESPONSE,
+    MOCK_OBSERVATION_COLD,
     MOCK_OBSERVATION_RESPONSE,
     MOCK_POINTS_RESPONSE,
     MOCK_RADAR_RESPONSE,
@@ -30,6 +36,10 @@ OBS_PROPS = MOCK_OBSERVATION_RESPONSE["properties"]
 FORECAST_PROPS = MOCK_FORECAST_RESPONSE["properties"]
 HOURLY_PROPS = MOCK_HOURLY_FORECAST_RESPONSE["properties"]
 GRIDPOINT_PROPS = MOCK_GRIDPOINT_RESPONSE["properties"]
+GRIDPOINT_COLD_PROPS = MOCK_GRIDPOINT_COLD["properties"]
+
+US_PREFS = UnitPrefs.from_system("us")
+SI_PREFS = UnitPrefs.from_system("si")
 
 
 def _mock_nws():
@@ -61,9 +71,9 @@ class TestGetConditions:
         assert result["sky_condition"] == "Mostly Sunny"
         assert result["station_name"] == "Minneapolis-St Paul International Airport"
         assert "°F" in result["feels_like"]
+        assert result["dewpoint"] == "50°F"
         assert "mi" in result["visibility"]
         assert "inHg" in result["pressure"]
-        assert "dewpoint" not in result
         assert "cloud_layers" not in result
 
     @patch("stormscope.tools._nws")
@@ -94,7 +104,7 @@ class TestGetConditions:
         from stormscope.tools import get_conditions
         result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
 
-        assert result["wind_gust"] == "calm"
+        assert result["wind_gust"] == "Calm"
 
     @patch("stormscope.tools._nws")
     async def test_error_for_non_us(self, mock_nws):
@@ -127,6 +137,7 @@ class TestGetForecast:
         m = _mock_nws()
         mock_nws.get_point = m.get_point
         mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
 
         from stormscope.tools import get_forecast
         result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
@@ -136,12 +147,15 @@ class TestGetForecast:
         assert len(result["periods"]) == 2
         assert result["periods"][0]["name"] == "Today"
         assert result["periods"][0]["temperature"] == "78°F"
+        assert result["periods"][0]["dewpoint"] == "50°F"
+        assert result["periods"][1]["dewpoint"] == "46°F"
 
     @patch("stormscope.tools._nws")
     async def test_hourly_mode(self, mock_nws):
         m = _mock_nws()
         mock_nws.get_point = m.get_point
         mock_nws.get_hourly_forecast = m.get_hourly_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
 
         from stormscope.tools import get_forecast
         result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, mode="hourly")
@@ -150,6 +164,7 @@ class TestGetForecast:
         assert result["location"] == "Minneapolis, MN"
         assert len(result["periods"]) == 6
         assert "°F" in result["periods"][0]["temperature"]
+        assert result["periods"][0]["dewpoint"] == "50°F"
 
     @patch("stormscope.tools._nws")
     async def test_raw_mode(self, mock_nws):
@@ -170,6 +185,7 @@ class TestGetForecast:
         m = _mock_nws()
         mock_nws.get_point = m.get_point
         mock_nws.get_hourly_forecast = m.get_hourly_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
 
         from stormscope.tools import get_forecast
         result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, mode="hourly", hours=3)
@@ -181,6 +197,7 @@ class TestGetForecast:
         m = _mock_nws()
         mock_nws.get_point = m.get_point
         mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
 
         from stormscope.tools import get_forecast
         result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, days=1)
@@ -419,6 +436,7 @@ class TestGetBriefing:
         mock_nws.get_stations = m.get_stations
         mock_nws.get_latest_observation = m.get_latest_observation
         mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
         mock_nws.get_alerts = m.get_alerts
 
         mock_spc.get_spc_outlook = AsyncMock(return_value={
@@ -450,6 +468,7 @@ class TestGetBriefing:
         mock_nws.get_stations = m.get_stations
         mock_nws.get_latest_observation = m.get_latest_observation
         mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
         mock_nws.get_hourly_forecast = m.get_hourly_forecast
         mock_nws.get_alerts = m.get_alerts
 
@@ -485,6 +504,7 @@ class TestGetBriefing:
         mock_nws.get_stations = m.get_stations
         mock_nws.get_latest_observation = m.get_latest_observation
         mock_nws.get_forecast = AsyncMock(side_effect=Exception("API down"))
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
         mock_nws.get_alerts = m.get_alerts
 
         mock_spc.get_spc_outlook = AsyncMock(return_value={
@@ -511,6 +531,7 @@ class TestGetBriefing:
         mock_nws.get_stations = m.get_stations
         mock_nws.get_latest_observation = m.get_latest_observation
         mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
         mock_nws.get_hourly_forecast = m.get_hourly_forecast
         mock_nws.get_alerts = m.get_alerts
 
@@ -585,48 +606,74 @@ class TestAlertsResilience:
 
 
 class TestSIFormatting:
-    @patch("stormscope.tools._is_si", return_value=True)
-    def test_fmt_temp_si(self, _mock):
-        assert _fmt_temp(72.0, celsius=22.0) == "22°C"
+    def test_fmt_temp_si(self):
+        assert _fmt_temp(72.0, 22.0, SI_PREFS) == "22°C"
 
-    @patch("stormscope.tools._is_si", return_value=True)
-    def test_fmt_temp_si_none_celsius(self, _mock):
-        assert _fmt_temp(72.0, celsius=None) == "N/A"
+    def test_fmt_temp_si_none_celsius(self):
+        assert _fmt_temp(72.0, None, SI_PREFS) == "N/A"
 
-    @patch("stormscope.tools._is_si", return_value=True)
-    def test_fmt_wind_si(self, _mock):
-        assert _fmt_wind(15.0, "SW") == "SW 15 km/h"
+    def test_fmt_temp_us(self):
+        assert _fmt_temp(72.0, 22.0, US_PREFS) == "72°F"
 
-    @patch("stormscope.tools._is_si", return_value=True)
-    def test_fmt_wind_si_calm(self, _mock):
-        assert _fmt_wind(None, None) == "Calm"
+    def test_fmt_temp_us_none(self):
+        assert _fmt_temp(None, 22.0, US_PREFS) == "N/A"
 
-    @patch("stormscope.tools._is_si", return_value=True)
-    def test_fmt_visibility_si(self, _mock):
-        assert _fmt_visibility(10.0, meters=16093.0) == "16.1 km"
+    def test_fmt_wind_si(self):
+        assert _fmt_wind(15.0, "SW", SI_PREFS) == "SW 15 km/h"
 
-    @patch("stormscope.tools._is_si", return_value=True)
-    def test_fmt_visibility_si_none(self, _mock):
-        assert _fmt_visibility(10.0, meters=None) == "N/A"
+    def test_fmt_wind_si_calm(self):
+        assert _fmt_wind(None, None, SI_PREFS) == "Calm"
 
-    @patch("stormscope.tools._is_si", return_value=True)
-    def test_fmt_pressure_si(self, _mock):
-        assert _fmt_pressure(29.92, pascals=101325.0) == "1013.2 hPa"
+    def test_fmt_wind_kt(self):
+        kt_prefs = UnitPrefs.from_system("us")
+        kt_prefs = UnitPrefs(
+            temperature="f", pressure="inhg", wind="kt",
+            distance="mi", accumulation="in",
+        )
+        assert _fmt_wind(39.0, "SW", kt_prefs) == "SW 39 kt"
 
-    @patch("stormscope.tools._is_si", return_value=True)
-    def test_fmt_pressure_si_none(self, _mock):
-        assert _fmt_pressure(29.92, pascals=None) == "N/A"
+    def test_fmt_visibility_si(self):
+        assert _fmt_visibility(10.0, 16093.0, SI_PREFS) == "16.1 km"
+
+    def test_fmt_visibility_si_none(self):
+        assert _fmt_visibility(10.0, None, SI_PREFS) == "N/A"
+
+    def test_fmt_pressure_mb(self):
+        assert _fmt_pressure(29.92, 101325.0, SI_PREFS) == "1013.2 mb"
+
+    def test_fmt_pressure_mb_none(self):
+        assert _fmt_pressure(29.92, None, SI_PREFS) == "N/A"
+
+    def test_fmt_pressure_inhg(self):
+        assert _fmt_pressure(29.92, 101325.0, US_PREFS) == "29.92 inHg"
 
 
 class TestUpperAirFormatters:
     def test_fmt_upper_wind_no_direction(self):
-        assert _fmt_upper_wind(20.0, None) == "39 kt"
+        assert _fmt_upper_wind(20.0, None, US_PREFS) == "45 mph"
+
+    def test_fmt_upper_wind_kt(self):
+        kt_prefs = UnitPrefs(
+            temperature="f", pressure="inhg", wind="kt",
+            distance="mi", accumulation="in",
+        )
+        assert _fmt_upper_wind(20.0, None, kt_prefs) == "39 kt"
 
     def test_fmt_upper_wind_calm(self):
-        assert _fmt_upper_wind(0.0, 270.0) == "Calm"
+        assert _fmt_upper_wind(0.0, 270.0, US_PREFS) == "Calm"
 
     def test_fmt_upper_wind_none(self):
-        assert _fmt_upper_wind(None, None) == "N/A"
+        assert _fmt_upper_wind(None, None, US_PREFS) == "N/A"
+
+    def test_fmt_upper_wind_si(self):
+        assert _fmt_upper_wind(20.0, 270.0, SI_PREFS) == "W 72 km/h"
+
+    def test_fmt_upper_wind_ms(self):
+        ms_prefs = UnitPrefs(
+            temperature="c", pressure="mb", wind="ms",
+            distance="km", accumulation="mm",
+        )
+        assert _fmt_upper_wind(20.0, 270.0, ms_prefs) == "W 20 m/s"
 
     def test_fmt_vorticity_none(self):
         assert _fmt_vorticity(None) == "N/A"
@@ -693,15 +740,14 @@ class TestGetUpperAir:
         assert result["time_series"][0]["relative_vorticity"] != "N/A"
         assert result["time_series"][11]["relative_vorticity"] == "N/A"
 
-    @patch("stormscope.tools._is_si", return_value=True)
     @patch("stormscope.tools._openmeteo")
-    async def test_si_units(self, mock_openmeteo, _mock_si):
+    async def test_si_units(self, mock_openmeteo):
         mock_openmeteo.get_upper_air = AsyncMock(return_value=MOCK_UPPER_AIR_RAW)
 
         from stormscope.tools import get_upper_air
-        result = await get_upper_air(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+        result = await get_upper_air(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, units="si")
 
-        assert "m/s" in result["time_series"][0]["wind"]
+        assert "km/h" in result["time_series"][0]["wind"]
         assert "°C" in result["time_series"][0]["temperature"]
 
 
@@ -971,19 +1017,203 @@ class TestWhichSideOfFront:
 
 class TestFmtDistance:
     def test_us_units(self):
-        from stormscope.tools import _fmt_distance
-        result = _fmt_distance(160.934)
+        result = _fmt_distance(160.934, US_PREFS)
         assert "mi" in result
         assert "100" in result
 
-    @patch("stormscope.tools._is_si", return_value=True)
-    def test_si_units(self, _mock):
-        from stormscope.tools import _fmt_distance
-        result = _fmt_distance(150.0)
+    def test_si_units(self):
+        result = _fmt_distance(150.0, SI_PREFS)
         assert result == "150 km"
 
-    @patch("stormscope.tools._is_si", return_value=True)
-    def test_si_rounds(self, _mock):
-        from stormscope.tools import _fmt_distance
-        result = _fmt_distance(150.7)
+    def test_si_rounds(self):
+        result = _fmt_distance(150.7, SI_PREFS)
         assert result == "151 km"
+
+
+class TestFmtAccumulation:
+    def test_inches(self):
+        assert _fmt_accumulation(25.4, US_PREFS) == "1.00 in"
+
+    def test_mm(self):
+        assert _fmt_accumulation(25.4, SI_PREFS) == "25.4 mm"
+
+    def test_cm(self):
+        cm_prefs = UnitPrefs(
+            temperature="f", pressure="inhg", wind="mph",
+            distance="mi", accumulation="cm",
+        )
+        assert _fmt_accumulation(25.4, cm_prefs) == "2.5 cm"
+
+    def test_zero(self):
+        assert _fmt_accumulation(0, US_PREFS) == "0"
+
+    def test_none(self):
+        assert _fmt_accumulation(None, US_PREFS) == "0"
+
+    def test_small_value(self):
+        assert _fmt_accumulation(2.5, US_PREFS) == "0.10 in"
+
+
+class TestFrostPoint:
+    @patch("stormscope.tools._nws")
+    async def test_conditions_frost_point(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = AsyncMock(return_value=MOCK_OBSERVATION_COLD)
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "frost_point" in result
+        assert "dewpoint" not in result
+        assert "°F" in result["frost_point"]
+
+    @patch("stormscope.tools._nws")
+    async def test_conditions_dewpoint_above_zero(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "dewpoint" in result
+        assert "frost_point" not in result
+
+    @patch("stormscope.tools._nws")
+    async def test_forecast_frost_point(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = AsyncMock(return_value=GRIDPOINT_COLD_PROPS)
+
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        period = result["periods"][0]
+        assert "frost_point" in period
+        assert "dewpoint" not in period
+
+
+class TestForecastEnrichedFields:
+    @patch("stormscope.tools._nws")
+    async def test_daily_has_pressure_and_feels_like(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
+
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        period = result["periods"][0]
+        assert "pressure" in period
+        assert period["pressure"] != "N/A"
+        assert "feels_like" in period
+        assert period["feels_like"] != "N/A"
+
+    @patch("stormscope.tools._nws")
+    async def test_daily_has_snow_accumulation(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
+
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        # "Today" period (12:00-18:00 UTC) should have snow from mock data
+        period = result["periods"][0]
+        assert "snow_accumulation" in period
+        assert "in" in period["snow_accumulation"]
+
+    @patch("stormscope.tools._nws")
+    async def test_daily_pressure_trend(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
+
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "pressure_trend" in result
+        assert result["pressure_trend"] in ("rising", "falling", "steady")
+
+    @patch("stormscope.tools._nws")
+    async def test_hourly_has_enriched_fields(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_hourly_forecast = m.get_hourly_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
+
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, mode="hourly")
+
+        period = result["periods"][0]
+        assert "pressure" in period
+        assert "feels_like" in period
+
+    @patch("stormscope.tools._nws")
+    async def test_raw_mode_includes_new_params(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
+
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, mode="raw")
+
+        grid = result["grid"]
+        assert "apparentTemperature" in grid
+        assert "pressure" in grid
+        assert "snowfallAmount" in grid
+        assert "iceAccumulation" in grid
+
+
+class TestUnitsOverride:
+    @patch("stormscope.tools._nws")
+    async def test_conditions_si(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, units="si")
+
+        assert "°C" in result["temperature"]
+        assert "km" in result["visibility"]
+        assert "mb" in result["pressure"]
+
+    @patch("stormscope.tools._nws")
+    async def test_conditions_us_with_pressure_override(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(
+            MINNEAPOLIS_LAT, MINNEAPOLIS_LON, units="us,pressure:mb",
+        )
+
+        assert "°F" in result["temperature"]
+        assert "mb" in result["pressure"]
+        assert "mi" in result["visibility"]
+
+    @patch("stormscope.tools._nws")
+    async def test_conditions_wind_kt_override(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(
+            MINNEAPOLIS_LAT, MINNEAPOLIS_LON, units="us,wind:kt",
+        )
+
+        # wind should be in knots (observation wind is 3.6 km/h -> ~1 kt)
+        assert "kt" in result["wind"] or result["wind"] == "Calm"

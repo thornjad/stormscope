@@ -1,5 +1,90 @@
 """Unit conversion helpers for NWS observation data."""
 
+from dataclasses import dataclass
+
+
+_VALID_TEMPS = {"f", "c"}
+_VALID_PRESSURES = {"inhg", "mb"}
+_VALID_WINDS = {"mph", "kt", "kmh", "ms"}
+_VALID_DISTANCES = {"mi", "km"}
+_VALID_ACCUMULATIONS = {"in", "mm", "cm"}
+
+_FIELD_VALIDATORS = {
+    "temperature": _VALID_TEMPS,
+    "pressure": _VALID_PRESSURES,
+    "wind": _VALID_WINDS,
+    "distance": _VALID_DISTANCES,
+    "accumulation": _VALID_ACCUMULATIONS,
+}
+
+
+@dataclass(frozen=True)
+class UnitPrefs:
+    temperature: str  # "f" or "c"
+    pressure: str     # "inhg" or "mb"
+    wind: str         # "mph" or "kt" or "kmh" or "ms"
+    distance: str     # "mi" or "km"
+    accumulation: str  # "in" or "mm" or "cm"
+
+    @classmethod
+    def from_system(cls, system: str) -> "UnitPrefs":
+        if system == "si":
+            return cls(
+                temperature="c", pressure="mb", wind="kmh",
+                distance="km", accumulation="mm",
+            )
+        if system != "us":
+            raise ValueError(f"unknown unit system '{system}', must be 'us' or 'si'")
+        return cls(
+            temperature="f", pressure="inhg", wind="mph",
+            distance="mi", accumulation="in",
+        )
+
+
+def parse_units(raw: str | None, default_system: str = "us") -> UnitPrefs:
+    """Parse 'us', 'si', or 'us,pressure:mb,wind:kt' into UnitPrefs."""
+    if not raw:
+        return UnitPrefs.from_system(default_system)
+
+    parts = [p.strip() for p in raw.split(",")]
+    base = parts[0].lower()
+    if base not in ("us", "si"):
+        raise ValueError(f"invalid unit system '{base}', must be 'us' or 'si'")
+
+    prefs = UnitPrefs.from_system(base)
+    overrides = {}
+    for part in parts[1:]:
+        if ":" not in part:
+            raise ValueError(f"invalid unit override '{part}', expected 'field:value'")
+        field, value = part.split(":", 1)
+        field = field.strip().lower()
+        value = value.strip().lower()
+        if field not in _FIELD_VALIDATORS:
+            raise ValueError(
+                f"unknown unit field '{field}', must be one of: "
+                f"{', '.join(sorted(_FIELD_VALIDATORS))}"
+            )
+        if value not in _FIELD_VALIDATORS[field]:
+            raise ValueError(
+                f"invalid value '{value}' for {field}, must be one of: "
+                f"{', '.join(sorted(_FIELD_VALIDATORS[field]))}"
+            )
+        overrides[field] = value
+
+    if overrides:
+        from dataclasses import asdict
+        d = asdict(prefs)
+        d.update(overrides)
+        prefs = UnitPrefs(**d)
+    return prefs
+
+
+def mm_to_inches(mm: float | None) -> float | None:
+    """Convert millimeters to inches."""
+    if mm is None:
+        return None
+    return mm / 25.4
+
 
 def c_to_f(celsius: float | None) -> float | None:
     """Convert Celsius to Fahrenheit."""
