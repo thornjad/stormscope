@@ -238,6 +238,176 @@ class TestUnitsValidation:
         assert _validate_units("si") is None
         assert _validate_units(None) is None
 
+    @pytest.mark.asyncio
+    async def test_invalid_units_alerts(self):
+        from stormscope.server import get_alerts
+        result = await get_alerts(units="metric")
+        assert "error" in result
+        assert "invalid unit system" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_units_spc_outlook(self):
+        from stormscope.server import get_spc_outlook
+        result = await get_spc_outlook(units="metric")
+        assert "error" in result
+        assert "invalid unit system" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_units_national_outlook(self):
+        from stormscope.server import get_national_outlook
+        result = await get_national_outlook(units="metric")
+        assert "error" in result
+        assert "invalid unit system" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_units_radar(self):
+        from stormscope.server import get_radar
+        result = await get_radar(units="metric")
+        assert "error" in result
+        assert "invalid unit system" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_units_upper_air(self):
+        from stormscope.server import get_upper_air
+        result = await get_upper_air(units="metric")
+        assert "error" in result
+        assert "invalid unit system" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_units_surface_analysis(self):
+        from stormscope.server import get_surface_analysis
+        result = await get_surface_analysis(units="metric")
+        assert "error" in result
+        assert "invalid unit system" in result["error"]
+
+
+class TestServerDelegation:
+    """Verify each server tool delegates to the tools module with valid inputs."""
+
+    @pytest.mark.asyncio
+    @patch("stormscope.tools.get_conditions", new_callable=AsyncMock)
+    async def test_conditions_delegates(self, mock_fn):
+        mock_fn.return_value = {"temperature": "72°F"}
+        from stormscope.server import get_conditions
+        result = await get_conditions(latitude=44.9, longitude=-93.2)
+        assert result == {"temperature": "72°F"}
+
+    @pytest.mark.asyncio
+    @patch("stormscope.tools.get_forecast", new_callable=AsyncMock)
+    async def test_forecast_delegates(self, mock_fn):
+        mock_fn.return_value = {"periods": []}
+        from stormscope.server import get_forecast
+        result = await get_forecast(latitude=44.9, longitude=-93.2)
+        assert result == {"periods": []}
+
+    @pytest.mark.asyncio
+    @patch("stormscope.tools.get_alerts", new_callable=AsyncMock)
+    async def test_alerts_delegates(self, mock_fn):
+        mock_fn.return_value = {"count": 0, "alerts": []}
+        from stormscope.server import get_alerts
+        result = await get_alerts(latitude=44.9, longitude=-93.2)
+        assert result == {"count": 0, "alerts": []}
+
+    @pytest.mark.asyncio
+    @patch("stormscope.tools.get_spc_outlook", new_callable=AsyncMock)
+    async def test_spc_outlook_delegates(self, mock_fn):
+        mock_fn.return_value = {"risk_level": "NONE"}
+        from stormscope.server import get_spc_outlook
+        result = await get_spc_outlook(latitude=44.9, longitude=-93.2)
+        assert result == {"risk_level": "NONE"}
+
+    @pytest.mark.asyncio
+    @patch("stormscope.tools.get_national_outlook", new_callable=AsyncMock)
+    async def test_national_outlook_delegates(self, mock_fn):
+        mock_fn.return_value = {"areas": []}
+        from stormscope.server import get_national_outlook
+        result = await get_national_outlook()
+        assert result == {"areas": []}
+
+    @pytest.mark.asyncio
+    @patch("stormscope.tools.get_radar", new_callable=AsyncMock)
+    async def test_radar_delegates(self, mock_fn):
+        mock_fn.return_value = {"station_id": "KMPX"}
+        from stormscope.server import get_radar
+        result = await get_radar(latitude=44.9, longitude=-93.2)
+        assert result == {"station_id": "KMPX"}
+
+    @pytest.mark.asyncio
+    @patch("stormscope.tools.get_briefing", new_callable=AsyncMock)
+    async def test_briefing_delegates(self, mock_fn):
+        mock_fn.return_value = {"location": "Minneapolis, MN"}
+        from stormscope.server import get_briefing
+        result = await get_briefing(latitude=44.9, longitude=-93.2)
+        assert result == {"location": "Minneapolis, MN"}
+
+    @pytest.mark.asyncio
+    @patch("stormscope.tools.get_upper_air", new_callable=AsyncMock)
+    async def test_upper_air_delegates(self, mock_fn):
+        mock_fn.return_value = {"height_dam": "560"}
+        from stormscope.server import get_upper_air
+        result = await get_upper_air(latitude=44.9, longitude=-93.2)
+        assert result == {"height_dam": "560"}
+
+    @pytest.mark.asyncio
+    @patch("stormscope.tools.get_surface_analysis", new_callable=AsyncMock)
+    async def test_surface_analysis_delegates(self, mock_fn):
+        mock_fn.return_value = {"fronts": []}
+        from stormscope.server import get_surface_analysis
+        result = await get_surface_analysis(latitude=44.9, longitude=-93.2)
+        assert result == {"fronts": []}
+
+
+class TestServerLocationErrors:
+    """Verify server tools return an error dict for out-of-range coordinates."""
+
+    @pytest.mark.asyncio
+    async def test_conditions_invalid_coords(self):
+        from stormscope.server import get_conditions
+        result = await get_conditions(latitude=95.0, longitude=-93.2)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_forecast_invalid_coords(self):
+        from stormscope.server import get_forecast
+        result = await get_forecast(latitude=95.0, longitude=-93.2)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_alerts_invalid_coords(self):
+        from stormscope.server import get_alerts
+        result = await get_alerts(latitude=95.0, longitude=-93.2)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_spc_outlook_invalid_coords(self):
+        from stormscope.server import get_spc_outlook
+        result = await get_spc_outlook(latitude=95.0, longitude=-93.2)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_radar_invalid_coords(self):
+        from stormscope.server import get_radar
+        result = await get_radar(latitude=95.0, longitude=-93.2)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_briefing_invalid_coords(self):
+        from stormscope.server import get_briefing
+        result = await get_briefing(latitude=95.0, longitude=-93.2)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_upper_air_invalid_coords(self):
+        from stormscope.server import get_upper_air
+        result = await get_upper_air(latitude=95.0, longitude=-93.2)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_surface_analysis_invalid_coords(self):
+        from stormscope.server import get_surface_analysis
+        result = await get_surface_analysis(latitude=95.0, longitude=-93.2)
+        assert "error" in result
+
 
 class TestMCPRegistration:
     @pytest.mark.asyncio
