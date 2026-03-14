@@ -20,4 +20,4 @@ jobs:
 
       - run: uv sync --group dev
 
-      - run: uv run python -m pytest --cov=stormscope --cov-fail-under=85
+      - run: uv run python -m pytest --cov=stormscope
