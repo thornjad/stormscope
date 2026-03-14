@@ -29,9 +29,6 @@ _openmeteo = OpenMeteoClient()
 _wpc = WPCClient()
 _tempest: TempestClient | None = TempestClient(config.tempest_token) if config.tempest_enabled else None
 
-_resolved_tempest_station: dict | None = None
-_resolved_tempest_station_fetched = False
-
 
 async def shutdown():
     """close all HTTP clients."""
@@ -45,23 +42,22 @@ async def shutdown():
 
 
 async def _get_tempest_station(lat: float, lon: float) -> dict | None:
-    """resolve tempest station for given coords, cached for server lifetime."""
-    global _resolved_tempest_station, _resolved_tempest_station_fetched
-    if _resolved_tempest_station_fetched:
-        return _resolved_tempest_station
-    _resolved_tempest_station_fetched = True
+    """resolve tempest station for given coords.
+
+    delegates to TempestClient's TTL cache, which keys on (station_id, station_name,
+    lat, lon), so each distinct query location is cached independently.
+    """
     if _tempest is None:
         return None
     try:
-        _resolved_tempest_station = await _tempest.resolve_station(
+        return await _tempest.resolve_station(
             lat, lon,
             station_id=config.tempest_station_id,
             station_name=config.tempest_station_name,
         )
     except Exception:
         logger.debug("tempest station resolution failed", exc_info=True)
-        _resolved_tempest_station = None
-    return _resolved_tempest_station
+        return None
 
 
 async def get_tempest_station_location() -> tuple[float, float] | None:
@@ -129,7 +125,7 @@ def _merge_tempest_conditions(
     if trend is not None:
         result["pressure_trend"] = trend
 
-    station_name = normalized.get("station_name") or normalized.get("name")
+    station_name = obs.get("station_name") or obs.get("name")
     if station_name:
         result["tempest_station"] = station_name
 

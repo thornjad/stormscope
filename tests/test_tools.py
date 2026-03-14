@@ -1253,10 +1253,6 @@ class TestTempestIntegration:
         mock_tempest.get_observations = t.get_observations
         mock_tempest.normalize_obs = t.normalize_obs
 
-        import stormscope.tools as tools_mod
-        tools_mod._resolved_tempest_station = TEMPEST_STATION_NEARBY
-        tools_mod._resolved_tempest_station_fetched = True
-
         from stormscope.tools import get_conditions
         result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
 
@@ -1274,10 +1270,6 @@ class TestTempestIntegration:
         mock_nws.get_point = m.get_point
         mock_nws.get_stations = m.get_stations
         mock_nws.get_latest_observation = m.get_latest_observation
-
-        import stormscope.tools as tools_mod
-        tools_mod._resolved_tempest_station = None
-        tools_mod._resolved_tempest_station_fetched = False
 
         from stormscope.tools import get_conditions
         result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
@@ -1298,10 +1290,6 @@ class TestTempestIntegration:
         mock_tempest.resolve_station = t.resolve_station
         mock_tempest.get_forecast = t.get_forecast
 
-        import stormscope.tools as tools_mod
-        tools_mod._resolved_tempest_station = TEMPEST_STATION_NEARBY
-        tools_mod._resolved_tempest_station_fetched = True
-
         from stormscope.tools import get_forecast
         result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
 
@@ -1319,10 +1307,6 @@ class TestTempestIntegration:
 
         # simulate Tempest API failure
         mock_tempest.resolve_station.side_effect = Exception("API down")
-
-        import stormscope.tools as tools_mod
-        tools_mod._resolved_tempest_station = None
-        tools_mod._resolved_tempest_station_fetched = False
 
         from stormscope.tools import get_conditions
         result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
@@ -1449,3 +1433,25 @@ class TestTempestIntegration:
             station_name=None,
             bypass_distance_check=True,
         )
+
+    def test_merge_conditions_nws_time_na_falls_back_to_nws(self):
+        """when observation_time is N/A, tempest values are not promoted to primary."""
+        from stormscope.tools import _merge_tempest_conditions
+
+        obs = {
+            "timestamp": 9999999999,
+            "solar_radiation": 450,
+            "uv": 3.2,
+            "_station_units": {},
+            "station_name": "Holz Lake",
+        }
+        nws_result = {
+            "temperature": "72°F",
+            "observation_time": "N/A",
+        }
+        result = _merge_tempest_conditions(nws_result, obs, US_PREFS)
+
+        assert result["data_source"] == "nws"
+        assert result["temperature"] == "72°F"
+        assert result["uv_index"] == 3.2
+

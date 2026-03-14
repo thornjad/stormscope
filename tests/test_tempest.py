@@ -124,7 +124,7 @@ async def test_get_forecast_unit_mapping_us(client):
     assert b"units_temp=f" in request.url.query
     assert b"units_wind=mph" in request.url.query
     assert b"units_pressure=inhg" in request.url.query
-    assert b"units_precip=in" in request.url.query
+    assert b"units_precip=mm" in request.url.query
     assert b"units_distance=mi" in request.url.query
 
 
@@ -198,13 +198,23 @@ async def test_auth_token_in_requests(client):
 async def test_api_error_stale_fallback(client):
     # prime the cache
     respx.get(f"{_BASE}/stations").mock(return_value=httpx.Response(200, json=MOCK_TEMPEST_STATIONS_RESPONSE))
-    await client.get_stations()
+    original = await client.get_stations()
 
-    # now fail with 500 — should get stale data
+    # now fail with 500 — should get the same stale data
     respx.get(f"{_BASE}/stations").mock(return_value=httpx.Response(500))
-    # TTL cache may serve stale; we just confirm no exception is raised
     stations = await client.get_stations()
-    assert stations is not None
+    assert stations == original
+
+
+def test_normalize_obs_kts_passthrough(client):
+    """kts wind unit falls through to the else branch and is treated as m/s."""
+    obs = {
+        "wind_avg": 10.0,
+        "_station_units": {"units_temp": "c", "units_wind": "kts"},
+    }
+    result = client.normalize_obs(obs, _US_PREFS)
+    # kts treated as m/s in the else branch: 10 "mps" → ~22.37 mph
+    assert abs(result["wind_avg"] - 22.37) < 0.1
 
 
 @respx.mock

@@ -159,10 +159,14 @@ class TempestClient(BaseAPIClient):
         return await self._cache.get_or_fetch(f"obs:{station_id}", 120, _fetch)
 
     async def get_forecast(self, station_id: int, prefs: UnitPrefs) -> dict:
-        """fetch better_forecast for a station with unit params. cached 30 min."""
+        """fetch better_forecast for a station with unit params. cached 30 min.
+
+        precip is always fetched in mm regardless of prefs; _merge_tempest_forecast
+        handles conversion to the user's preferred accumulation unit.
+        """
         cache_key = (
             f"forecast:{station_id}:{prefs.temperature}:{prefs.wind}:"
-            f"{prefs.pressure}:{prefs.accumulation}:{prefs.distance}"
+            f"{prefs.pressure}:{prefs.distance}"
         )
         async def _fetch():
             params = {
@@ -170,7 +174,7 @@ class TempestClient(BaseAPIClient):
                 "units_temp": _TEMP_UNIT_MAP.get(prefs.temperature, "f"),
                 "units_wind": _WIND_UNIT_MAP.get(prefs.wind, "mph"),
                 "units_pressure": _PRESSURE_UNIT_MAP.get(prefs.pressure, "inhg"),
-                "units_precip": _PRECIP_UNIT_MAP.get(prefs.accumulation, "in"),
+                "units_precip": "mm",
                 "units_distance": _DISTANCE_UNIT_MAP.get(prefs.distance, "mi"),
             }
             return await self._request("/better_forecast", params=params)
