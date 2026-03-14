@@ -4,7 +4,10 @@ import logging
 
 from stormscope.base_client import BaseAPIClient
 from stormscope.geo import haversine_km, KM_PER_MI
-from stormscope.units import UnitPrefs
+from stormscope.units import UnitPrefs, c_to_f, ms_to_mph, ms_to_kt, pa_to_inhg
+
+# sentinel for caching None (no station found / too far away)
+_CACHE_MISS = object()
 
 logger = logging.getLogger(__name__)
 
@@ -70,15 +73,24 @@ class TempestClient(BaseAPIClient):
         lon: float,
         station_id: int | None = None,
         station_name: str | None = None,
+        bypass_distance_check: bool = False,
     ) -> dict | None:
-        """resolve a station by id, name, or proximity. returns None if none found within 5 miles."""
+        """resolve a station by id, name, or proximity.
+
+        all paths apply the 5-mile proximity gate. for explicit id/name
+        resolution, a warning is logged when the station is too far (so the
+        user knows their configured station is not being used). for proximity
+        resolution, the miss is silent. pass bypass_distance_check=True to
+        skip the gate entirely (used when fetching the station's own location).
+        """
         cache_key = f"resolved_station:{station_id}:{station_name}:{lat:.4f}:{lon:.4f}"
         cached, is_stale = await self._cache.get(cache_key)
         if cached is not None and not is_stale:
-            return cached
+            return None if cached is _CACHE_MISS else cached
 
         stations = await self.get_stations()
         station = None
+        explicit = station_id is not None or station_name is not None
 
         if station_id is not None:
             for s in stations:
@@ -104,18 +116,31 @@ class TempestClient(BaseAPIClient):
                     best_dist = d
                     station = s
 
-        if station is None:
-            return None
+        # apply proximity gate to all resolution paths
+        if station is not None and not bypass_distance_check:
+            slat = station.get("latitude")
+            slon = station.get("longitude")
+            if slat is not None and slon is not None:
+                dist_km = haversine_km(lat, lon, slat, slon)
+                if dist_km > _STATION_MAX_DIST_KM:
+                    if explicit:
+                        logger.warning(
+                            "configured tempest station is %.1f km away "
+                            "(limit: %.1f km); Tempest enrichment disabled "
+                            "for this location",
+                            dist_km, _STATION_MAX_DIST_KM,
+                        )
+                    else:
+                        logger.debug(
+                            "nearest tempest station %.1f km away, exceeds limit",
+                            dist_km,
+                        )
+                    await self._cache.set(cache_key, _CACHE_MISS, ttl_seconds=3600)
+                    return None
 
-        slat = station.get("latitude")
-        slon = station.get("longitude")
-        if slat is not None and slon is not None:
-            dist_km = haversine_km(lat, lon, slat, slon)
-            if dist_km > _STATION_MAX_DIST_KM:
-                logger.debug(
-                    "nearest tempest station %.1f km away, exceeds 5 mile limit", dist_km
-                )
-                return None
+        if station is None:
+            await self._cache.set(cache_key, _CACHE_MISS, ttl_seconds=3600)
+            return None
 
         await self._cache.set(cache_key, station, ttl_seconds=3600)
         return station
@@ -158,8 +183,6 @@ class TempestClient(BaseAPIClient):
         air_temperature: °C, wind_avg/gust/lull: m/s, station_pressure: mb.
         The _station_units dict indicates actual units.
         """
-        from stormscope.units import c_to_f, ms_to_mph, ms_to_kt, pa_to_inhg
-
         result = dict(obs)
         station_units = obs.get("_station_units", {})
 

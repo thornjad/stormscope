@@ -205,3 +205,52 @@ async def test_api_error_stale_fallback(client):
     # TTL cache may serve stale; we just confirm no exception is raised
     stations = await client.get_stations()
     assert stations is not None
+
+
+@respx.mock
+async def test_resolve_station_by_id_warns_when_too_far(client, caplog):
+    """explicit station_id that is outside the proximity limit returns None and logs a warning."""
+    import logging
+    respx.get(f"{_BASE}/stations").mock(return_value=httpx.Response(200, json=MOCK_TEMPEST_STATIONS_FAR_ONLY))
+    with caplog.at_level(logging.WARNING, logger="stormscope.tempest"):
+        station = await client.resolve_station(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, station_id=99999)
+    assert station is None
+    assert any("configured tempest station" in r.message for r in caplog.records)
+
+
+@respx.mock
+async def test_resolve_station_by_name_warns_when_too_far(client, caplog):
+    """explicit station_name that is outside the proximity limit returns None and logs a warning."""
+    import logging
+    respx.get(f"{_BASE}/stations").mock(return_value=httpx.Response(200, json=MOCK_TEMPEST_STATIONS_FAR_ONLY))
+    with caplog.at_level(logging.WARNING, logger="stormscope.tempest"):
+        station = await client.resolve_station(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, station_name="far away station")
+    assert station is None
+    assert any("configured tempest station" in r.message for r in caplog.records)
+
+
+@respx.mock
+async def test_resolve_station_proximity_miss_cached(client):
+    """S5: a proximity miss (too far) should be cached so the station list is fetched only once."""
+    route = respx.get(f"{_BASE}/stations").mock(
+        return_value=httpx.Response(200, json=MOCK_TEMPEST_STATIONS_FAR_ONLY)
+    )
+    result1 = await client.resolve_station(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+    result2 = await client.resolve_station(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+    assert result1 is None
+    assert result2 is None
+    # station list fetched once; second call served from cache
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_resolve_station_no_match_cached(client):
+    """S5: a name miss (no matching station) should also be cached."""
+    route = respx.get(f"{_BASE}/stations").mock(
+        return_value=httpx.Response(200, json=MOCK_TEMPEST_STATIONS_RESPONSE)
+    )
+    result1 = await client.resolve_station(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, station_name="nonexistent")
+    result2 = await client.resolve_station(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, station_name="nonexistent")
+    assert result1 is None
+    assert result2 is None
+    assert route.call_count == 1

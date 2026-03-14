@@ -65,26 +65,20 @@ async def _get_tempest_station(lat: float, lon: float) -> dict | None:
 
 
 async def get_tempest_station_location() -> tuple[float, float] | None:
-    """return (lat, lon) of the configured tempest station, or None."""
+    """return (lat, lon) of the configured tempest station, or None.
+
+    bypasses the distance gate because we are fetching the station's own
+    coordinates, not checking whether it is close enough to enrich a query.
+    """
     if _tempest is None:
         return None
     try:
-        stations = await _tempest.get_stations()
-        station_id = config.tempest_station_id
-        station_name = config.tempest_station_name
-        station = None
-        if station_id is not None:
-            for s in stations:
-                if s.get("station_id") == station_id:
-                    station = s
-                    break
-        elif station_name is not None:
-            name_lower = station_name.lower()
-            for s in stations:
-                if (s.get("name", "").lower() == name_lower or
-                        s.get("public_name", "").lower() == name_lower):
-                    station = s
-                    break
+        station = await _tempest.resolve_station(
+            0.0, 0.0,
+            station_id=config.tempest_station_id,
+            station_name=config.tempest_station_name,
+            bypass_distance_check=True,
+        )
         if station is None:
             return None
         lat = station.get("latitude")
@@ -107,34 +101,35 @@ def _merge_tempest_conditions(
 
     normalized = _tempest.normalize_obs(obs, prefs) if _tempest else obs
 
-    # unique Tempest-only fields
-    solar = obs.get("solar_radiation")
+    # unit-agnostic Tempest-only fields (normalize_obs does not touch these)
+    solar = normalized.get("solar_radiation")
     if solar is not None:
         result["solar_radiation"] = f"{round(solar)} W/m²"
 
-    uv = obs.get("uv")
+    uv = normalized.get("uv")
     if uv is not None:
         result["uv_index"] = round(uv, 1)
 
-    lightning = obs.get("lightning_strike_count_last_1hr") or obs.get("lightning_strike_count")
+    lightning = normalized.get("lightning_strike_count_last_1hr") or normalized.get("lightning_strike_count")
     if lightning is not None:
         result["lightning_strikes_1hr"] = int(lightning)
 
-    air_density = obs.get("air_density")
+    air_density = normalized.get("air_density")
     if air_density is not None:
         result["air_density"] = f"{air_density:.3f} kg/m³"
 
-    wet_bulb_c = obs.get("wet_bulb_temperature")
-    if wet_bulb_c is not None:
-        from stormscope.units import c_to_f
-        wb_f = c_to_f(wet_bulb_c)
-        result["wet_bulb_temperature"] = _fmt_temp(wb_f, wet_bulb_c, prefs)
+    # wet_bulb_temperature is normalized to prefs.temperature unit
+    wet_bulb_n = normalized.get("wet_bulb_temperature")
+    if wet_bulb_n is not None:
+        f_val = wet_bulb_n if prefs.temperature == "f" else None
+        c_val = wet_bulb_n if prefs.temperature == "c" else None
+        result["wet_bulb_temperature"] = _fmt_temp(f_val, c_val, prefs)
 
-    trend = obs.get("pressure_trend")
+    trend = normalized.get("pressure_trend")
     if trend is not None:
         result["pressure_trend"] = trend
 
-    station_name = obs.get("station_name") or obs.get("name")
+    station_name = normalized.get("station_name") or normalized.get("name")
     if station_name:
         result["tempest_station"] = station_name
 
@@ -144,7 +139,6 @@ def _merge_tempest_conditions(
     tempest_more_recent = False
     if tempest_time_epoch and nws_time and nws_time != "N/A":
         try:
-            from datetime import datetime, timezone
             nws_dt = datetime.fromisoformat(nws_time)
             if nws_dt.tzinfo is None:
                 nws_dt = nws_dt.replace(tzinfo=timezone.utc)
@@ -155,36 +149,33 @@ def _merge_tempest_conditions(
             pass
 
     if tempest_more_recent:
-        from stormscope.units import c_to_f, degrees_to_cardinal
-        temp_c = obs.get("air_temperature")
-        if temp_c is not None:
-            result["temperature"] = _fmt_temp(c_to_f(temp_c), temp_c, prefs)
+        # normalized values are already in prefs units
+        temp_n = normalized.get("air_temperature")
+        if temp_n is not None:
+            f_val = temp_n if prefs.temperature == "f" else None
+            c_val = temp_n if prefs.temperature == "c" else None
+            result["temperature"] = _fmt_temp(f_val, c_val, prefs)
             result["data_source"] = "tempest"
-        feels_c = obs.get("feels_like")
-        if feels_c is not None:
-            result["feels_like"] = _fmt_temp(c_to_f(feels_c), feels_c, prefs)
-        humidity = obs.get("relative_humidity")
+        feels_n = normalized.get("feels_like")
+        if feels_n is not None:
+            f_val = feels_n if prefs.temperature == "f" else None
+            c_val = feels_n if prefs.temperature == "c" else None
+            result["feels_like"] = _fmt_temp(f_val, c_val, prefs)
+        humidity = normalized.get("relative_humidity")
         if humidity is not None:
             result["humidity"] = _fmt_humidity(humidity)
-        wind_ms = obs.get("wind_avg")
-        wind_dir = obs.get("wind_direction")
-        if wind_ms is not None:
-            from stormscope.units import ms_to_mph, ms_to_kt
-            if prefs.wind == "mph":
-                wind_val = ms_to_mph(wind_ms)
-            elif prefs.wind == "kt":
-                wind_val = ms_to_kt(wind_ms)
-            elif prefs.wind == "kmh":
-                wind_val = wind_ms * 3.6
-            else:
-                wind_val = wind_ms
+        wind_n = normalized.get("wind_avg")
+        wind_dir = obs.get("wind_direction")  # degrees, no unit conversion
+        if wind_n is not None:
             cardinal = degrees_to_cardinal(wind_dir)
-            result["wind"] = _fmt_wind(wind_val, cardinal, prefs)
-        pressure_mb = obs.get("station_pressure")
-        if pressure_mb is not None:
-            pa = pressure_mb * 100
-            from stormscope.units import pa_to_inhg
-            result["pressure"] = _fmt_pressure(pa_to_inhg(pa), pa, prefs)
+            result["wind"] = _fmt_wind(wind_n, cardinal, prefs)
+        pressure_n = normalized.get("station_pressure")
+        if pressure_n is not None:
+            if prefs.pressure == "inhg":
+                result["pressure"] = _fmt_pressure(pressure_n, None, prefs)
+            else:
+                # normalized is mb; _fmt_pressure needs Pa
+                result["pressure"] = _fmt_pressure(None, pressure_n * 100, prefs)
     else:
         result["data_source"] = "nws"
 
@@ -203,7 +194,6 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
     for td in daily_list:
         day_start = td.get("day_start_local")
         if day_start is not None:
-            from datetime import datetime, timezone
             try:
                 dt = datetime.fromtimestamp(day_start, tz=timezone.utc)
                 date_key = dt.strftime("%Y-%m-%d")
@@ -215,12 +205,9 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
     for period in result.get("periods", []):
         p = dict(period)
         start_str = p.get("start_time") or ""
-        # for daily mode periods have no start_time, use name heuristic
-        # try to extract date from start_time
         date_key = None
         if start_str:
             try:
-                from datetime import datetime
                 dt = datetime.fromisoformat(start_str)
                 date_key = dt.strftime("%Y-%m-%d")
             except Exception:
@@ -231,51 +218,43 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
             sunrise = td.get("sunrise")
             sunset = td.get("sunset")
             if sunrise is not None:
-                from datetime import datetime, timezone
                 try:
                     p["sunrise"] = datetime.fromtimestamp(sunrise, tz=timezone.utc).isoformat()
                 except Exception:
                     pass
             if sunset is not None:
-                from datetime import datetime, timezone
                 try:
                     p["sunset"] = datetime.fromtimestamp(sunset, tz=timezone.utc).isoformat()
                 except Exception:
                     pass
 
+            # air_max/air_min come from Tempest in the requested temp unit
             t_high = td.get("air_max")
             t_low = td.get("air_min")
             if t_high is not None:
-                from stormscope.units import c_to_f
-                p["tempest_high"] = _fmt_temp(c_to_f(t_high), t_high, prefs)
+                f_val = t_high if prefs.temperature == "f" else None
+                c_val = t_high if prefs.temperature == "c" else None
+                p["tempest_high"] = _fmt_temp(f_val, c_val, prefs)
             if t_low is not None:
-                from stormscope.units import c_to_f
-                p["tempest_low"] = _fmt_temp(c_to_f(t_low), t_low, prefs)
+                f_val = t_low if prefs.temperature == "f" else None
+                c_val = t_low if prefs.temperature == "c" else None
+                p["tempest_low"] = _fmt_temp(f_val, c_val, prefs)
 
             conditions = td.get("conditions")
             if conditions:
                 p["tempest_conditions"] = conditions
 
+            # precip from Tempest is in mm (API does not support cm); convert when needed
+            precip_mm = td.get("precip")
+            if precip_mm is not None:
+                if prefs.accumulation == "cm":
+                    p["tempest_precip"] = f"{precip_mm / 10:.1f} cm"
+                else:
+                    p["tempest_precip"] = _fmt_accumulation(precip_mm, prefs)
+
         enriched_periods.append(p)
 
     result["periods"] = enriched_periods
-
-    # enrich hourly with feels_like and precip probability from Tempest hourly
-    hourly_list = fc.get("hourly", [])
-    if hourly_list:
-        tempest_by_hour: dict[str, dict] = {}
-        for th in hourly_list:
-            t_epoch = th.get("time")
-            if t_epoch is not None:
-                from datetime import datetime, timezone
-                try:
-                    dt = datetime.fromtimestamp(t_epoch, tz=timezone.utc)
-                    hour_key = dt.strftime("%Y-%m-%dT%H")
-                    tempest_by_hour[hour_key] = th
-                except Exception:
-                    pass
-        # mark hourly periods if present
-        result["_tempest_hourly"] = tempest_by_hour
 
     station_name = tempest_forecast.get("station_name") or fc.get("station_name")
     if station_name:
