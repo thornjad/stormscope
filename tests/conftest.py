@@ -461,3 +461,101 @@ MOCK_RADAR_RESPONSE = {
         "tile_url_template": "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/ridge::MPX-N0B-0/{z}/{x}/{y}.png",
     },
 }
+
+# Tempest station near Minneapolis test coords (within 5 miles)
+TEMPEST_STATION_NEARBY = {
+    "station_id": 211167,
+    "name": "Holz Lake",
+    "public_name": "Holz Lake Public",
+    "latitude": 44.990,
+    "longitude": -93.270,
+    "timezone": "America/Chicago",
+}
+
+# Tempest station far away (more than 5 miles)
+TEMPEST_STATION_FAR = {
+    "station_id": 99999,
+    "name": "Far Away Station",
+    "public_name": "Far Away",
+    "latitude": 44.0,
+    "longitude": -90.0,
+}
+
+MOCK_TEMPEST_STATIONS_RESPONSE = {
+    "stations": [TEMPEST_STATION_NEARBY, TEMPEST_STATION_FAR],
+}
+
+MOCK_TEMPEST_STATIONS_FAR_ONLY = {
+    "stations": [TEMPEST_STATION_FAR],
+}
+
+MOCK_TEMPEST_OBSERVATION_RESPONSE = {
+    "station_id": 211167,
+    "obs": [
+        {
+            "timestamp": 1741132800,  # 2026-03-04T20:00:00Z
+            "air_temperature": 18.5,
+            "feels_like": 17.2,
+            "relative_humidity": 58.0,
+            "wind_avg": 3.1,
+            "wind_gust": 6.2,
+            "wind_lull": 1.0,
+            "wind_direction": 225,
+            "station_pressure": 1013.25,
+            "solar_radiation": 450,
+            "uv": 3.2,
+            "lightning_strike_count_last_1hr": 0,
+            "air_density": 1.225,
+            "wet_bulb_temperature": 12.3,
+            "pressure_trend": "steady",
+        }
+    ],
+    "station_units": {
+        "units_temp": "c",
+        "units_wind": "mps",
+        "units_pressure": "mb",
+        "units_precip": "mm",
+        "units_distance": "mi",
+    },
+}
+
+MOCK_TEMPEST_OBSERVATION_EMPTY = {
+    "station_id": 211167,
+    "obs": [],
+    "station_units": {},
+}
+
+# Unix timestamps for 2026-03-04
+_SUNRISE_EPOCH = 1741081200  # approximate sunrise
+_SUNSET_EPOCH = 1741124400   # approximate sunset
+
+MOCK_TEMPEST_FORECAST_RESPONSE = {
+    "station_name": "Holz Lake",
+    "forecast": {
+        "daily": [
+            {
+                "day_start_local": 1741046400,  # 2026-03-04T06:00:00 local
+                "air_max": 24.0,
+                "air_min": 14.0,
+                "conditions": "Partly Cloudy",
+                "sunrise": _SUNRISE_EPOCH,
+                "sunset": _SUNSET_EPOCH,
+            },
+            {
+                "day_start_local": 1741132800,  # 2026-03-05T06:00:00 local
+                "air_max": 20.0,
+                "air_min": 10.0,
+                "conditions": "Rain",
+                "sunrise": _SUNRISE_EPOCH + 86400,
+                "sunset": _SUNSET_EPOCH + 86400,
+            },
+        ],
+        "hourly": [
+            {
+                "time": 1741046400,
+                "feels_like": 22.0,
+                "precip_probability": 10,
+            },
+        ],
+    },
+}

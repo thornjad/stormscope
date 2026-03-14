@@ -24,9 +24,13 @@ from tests.conftest import (
     MOCK_RADAR_RESPONSE,
     MOCK_SPC_OUTLOOK,
     MOCK_STATIONS_RESPONSE,
+    MOCK_TEMPEST_FORECAST_RESPONSE,
+    MOCK_TEMPEST_OBSERVATION_RESPONSE,
+    MOCK_TEMPEST_STATIONS_RESPONSE,
     MOCK_UPPER_AIR_RAW,
     MOCK_WPC_FRONTS,
     MOCK_WPC_PRESSURE_CENTERS,
+    TEMPEST_STATION_NEARBY,
 )
 
 
@@ -784,14 +788,14 @@ class TestComputeTrend:
 
 class TestHaversine:
     def test_known_distance(self):
-        from stormscope.tools import _haversine_km
+        from stormscope.geo import haversine_km
         # Minneapolis to Chicago is ~571 km
-        d = _haversine_km(44.9778, -93.2650, 41.8781, -87.6298)
+        d = haversine_km(44.9778, -93.2650, 41.8781, -87.6298)
         assert 565 < d < 580
 
     def test_same_point(self):
-        from stormscope.tools import _haversine_km
-        assert _haversine_km(45.0, -93.0, 45.0, -93.0) == 0.0
+        from stormscope.geo import haversine_km
+        assert haversine_km(45.0, -93.0, 45.0, -93.0) == 0.0
 
 
 class TestBearing:
@@ -1217,3 +1221,113 @@ class TestUnitsOverride:
 
         # wind should be in knots (observation wind is 3.6 km/h -> ~1 kt)
         assert "kt" in result["wind"] or result["wind"] == "Calm"
+
+
+class TestTempestIntegration:
+    """integration tests for tempest enrichment in conditions and forecast."""
+
+    def _mock_tempest(self):
+        from unittest.mock import AsyncMock
+        from stormscope.tempest import TempestClient
+        mock = AsyncMock(spec=TempestClient)
+        obs = dict(MOCK_TEMPEST_OBSERVATION_RESPONSE["obs"][0])
+        obs["_station_units"] = MOCK_TEMPEST_OBSERVATION_RESPONSE["station_units"]
+        obs["station_name"] = "Holz Lake"
+        mock.get_observations.return_value = obs
+        mock.get_stations.return_value = MOCK_TEMPEST_STATIONS_RESPONSE["stations"]
+        mock.resolve_station.return_value = TEMPEST_STATION_NEARBY
+        mock.get_forecast.return_value = MOCK_TEMPEST_FORECAST_RESPONSE
+        mock.normalize_obs.side_effect = lambda o, p: o
+        return mock
+
+    @patch("stormscope.tools._tempest")
+    @patch("stormscope.tools._nws")
+    async def test_conditions_include_tempest_fields(self, mock_nws, mock_tempest):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        t = self._mock_tempest()
+        mock_tempest.resolve_station = t.resolve_station
+        mock_tempest.get_observations = t.get_observations
+        mock_tempest.normalize_obs = t.normalize_obs
+
+        import stormscope.tools as tools_mod
+        tools_mod._resolved_tempest_station = TEMPEST_STATION_NEARBY
+        tools_mod._resolved_tempest_station_fetched = True
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert "solar_radiation" in result
+        assert "uv_index" in result
+        assert "air_density" in result
+        assert "wet_bulb_temperature" in result
+        assert "tempest_station" in result
+
+    @patch("stormscope.tools._tempest", None)
+    @patch("stormscope.tools._nws")
+    async def test_conditions_without_tempest(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        import stormscope.tools as tools_mod
+        tools_mod._resolved_tempest_station = None
+        tools_mod._resolved_tempest_station_fetched = False
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert "solar_radiation" not in result
+        assert "uv_index" not in result
+
+    @patch("stormscope.tools._tempest")
+    @patch("stormscope.tools._nws")
+    async def test_forecast_includes_sunrise_sunset(self, mock_nws, mock_tempest):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
+
+        t = self._mock_tempest()
+        mock_tempest.resolve_station = t.resolve_station
+        mock_tempest.get_forecast = t.get_forecast
+
+        import stormscope.tools as tools_mod
+        tools_mod._resolved_tempest_station = TEMPEST_STATION_NEARBY
+        tools_mod._resolved_tempest_station_fetched = True
+
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        # Tempest data merged — station name propagated
+        assert "tempest_station" in result
+
+    @patch("stormscope.tools._tempest")
+    @patch("stormscope.tools._nws")
+    async def test_tempest_offline_graceful_degradation(self, mock_nws, mock_tempest):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        # simulate Tempest API failure
+        mock_tempest.resolve_station.side_effect = Exception("API down")
+
+        import stormscope.tools as tools_mod
+        tools_mod._resolved_tempest_station = None
+        tools_mod._resolved_tempest_station_fetched = False
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        # NWS data returned without error
+        assert "error" not in result
+        assert "temperature" in result
+        assert "solar_radiation" not in result
