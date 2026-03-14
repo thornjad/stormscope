@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from stormscope.server import _resolve_location
+from tests.conftest import TEMPEST_STATION_NEARBY
 
 
 class TestResolveLocation:
@@ -109,6 +110,58 @@ class TestResolveLocation:
         lat, lon = await _resolve_location(-90.0, -180.0)
         assert lat == -90.0
         assert lon == -180.0
+
+    @pytest.mark.asyncio
+    @patch("stormscope.server.tools.get_tempest_station_location", new_callable=AsyncMock)
+    @patch("stormscope.server.config")
+    async def test_tempest_station_location_override(self, mock_config, mock_get_loc):
+        """TEMPEST_USE_STATION_LOCATION uses the station's coords as primary location."""
+        mock_config.tempest_enabled = True
+        mock_config.tempest_use_station_location = True
+        mock_config.primary_latitude = None
+        mock_config.primary_longitude = None
+        station_lat = TEMPEST_STATION_NEARBY["latitude"]
+        station_lon = TEMPEST_STATION_NEARBY["longitude"]
+        mock_get_loc.return_value = (station_lat, station_lon)
+
+        import stormscope.server as server_mod
+        orig_fetched = server_mod._tempest_station_location_fetched
+        orig_loc = server_mod._tempest_station_location
+        server_mod._tempest_station_location_fetched = False
+        server_mod._tempest_station_location = None
+        try:
+            lat, lon = await _resolve_location(None, None)
+        finally:
+            server_mod._tempest_station_location_fetched = orig_fetched
+            server_mod._tempest_station_location = orig_loc
+
+        assert lat == station_lat
+        assert lon == station_lon
+
+    @pytest.mark.asyncio
+    @patch("stormscope.server.tools.get_tempest_station_location", new_callable=AsyncMock)
+    @patch("stormscope.server.config")
+    async def test_tempest_station_location_fallback_on_none(self, mock_config, mock_get_loc):
+        """when station location returns None, fall through to primary location."""
+        mock_config.tempest_enabled = True
+        mock_config.tempest_use_station_location = True
+        mock_config.primary_latitude = 44.9
+        mock_config.primary_longitude = -93.2
+        mock_get_loc.return_value = None
+
+        import stormscope.server as server_mod
+        orig_fetched = server_mod._tempest_station_location_fetched
+        orig_loc = server_mod._tempest_station_location
+        server_mod._tempest_station_location_fetched = False
+        server_mod._tempest_station_location = None
+        try:
+            lat, lon = await _resolve_location(None, None)
+        finally:
+            server_mod._tempest_station_location_fetched = orig_fetched
+            server_mod._tempest_station_location = orig_loc
+
+        assert lat == 44.9
+        assert lon == -93.2
 
 
 class TestServerValidation:

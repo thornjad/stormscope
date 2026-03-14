@@ -540,6 +540,7 @@ MOCK_TEMPEST_FORECAST_RESPONSE = {
                 "conditions": "Partly Cloudy",
                 "sunrise": _SUNRISE_EPOCH,
                 "sunset": _SUNSET_EPOCH,
+                "precip": 12.5,  # mm
             },
             {
                 "day_start_local": 1741132800,  # 2026-03-05T06:00:00 local
