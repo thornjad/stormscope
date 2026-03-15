@@ -52,17 +52,54 @@ Or add to your Claude Code MCP config:
 | `UNITS` | `us` | Unit system (`us` or `si`) |
 | `ENABLE_CORELOCATION` | `false` | Set to `true` to enable macOS CoreLocation (requires Xcode Command Line Tools) |
 | `DISABLE_AUTO_GEOLOCATION` | `false` | Set to `true` to disable CoreLocation and IP geolocation |
+| `TEMPEST_TOKEN` | none | WeatherFlow Tempest Personal Access Token — enables Tempest station integration |
+| `TEMPEST_STATION_ID` | none | Explicit station ID to use (optional, see [Tempest station](#tempest-weather-station)) |
+| `TEMPEST_STATION_NAME` | none | Station name to match instead of ID (optional) |
+| `TEMPEST_USE_STATION_LOCATION` | `false` | Use Tempest station coordinates as the primary location |
 
 ### Location detection
 
 All location-aware tools accept optional `latitude` and `longitude` parameters. When omitted, the server resolves location through a fallback chain:
 
 1. **Explicit `latitude`/`longitude` params** — the AI can pass coordinates for any location
-2. **`PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE` env vars** — precise, recommended for your home location
-3. **macOS CoreLocation** (opt-in) — set `ENABLE_CORELOCATION=true`, requires Xcode Command Line Tools, ~100m WiFi-based accuracy, prompts for location permission on first use. Compiles a small Swift helper into `~/Library/Application Support/stormscope/`
-4. **IP geolocation** via [ipinfo.io](https://ipinfo.io) — automatic, city-level accuracy, one request per session
+2. **Tempest station location** (opt-in) — set `TEMPEST_USE_STATION_LOCATION=true` with a configured station to use its coordinates
+3. **`PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE` env vars** — precise, recommended for your home location
+4. **macOS CoreLocation** (opt-in) — set `ENABLE_CORELOCATION=true`, requires Xcode Command Line Tools, ~100m WiFi-based accuracy, prompts for location permission on first use. Compiles a small Swift helper into `~/Library/Application Support/stormscope/`
+5. **IP geolocation** via [ipinfo.io](https://ipinfo.io) — automatic, city-level accuracy, one request per session
 
-Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geolocation (tiers 3 and 4). With auto-geolocation disabled and no env vars or explicit params, tools return an error.
+Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geolocation (tiers 4 and 5). With auto-geolocation disabled and no env vars or explicit params, tools return an error.
+
+## Tempest weather station
+
+If you have a [WeatherFlow Tempest](https://weatherflow.com/tempest-weather-system/) personal weather station, StormScope can enrich NWS data with hyper-local sensor readings that NWS cannot provide: solar radiation, UV index, lightning strike counts, air density, and wet bulb temperature. Tempest also supplies sunrise/sunset times in its forecast, which are added to `get_forecast` output.
+
+**Tempest data supplements NWS — it does not replace it.** NWS provides authoritative alert text, detailed narrative forecasts, and broad coverage. Tempest provides hyper-local precision at your exact station location. When a Tempest observation is more recent than the nearest NWS station reading, StormScope prefers Tempest values for temperature, feels-like, humidity, wind, and pressure, and sets `data_source: "tempest"` in the response. Otherwise, NWS values are used and `data_source: "nws"` is set.
+
+If the Tempest API is unavailable, all tools fall back to NWS data without error.
+
+### Setup
+
+1. Get a Personal Access Token from the [Tempest developer portal](https://tempestwx.com/settings/tokens).
+2. Find your station ID from the Tempest app or API (Settings → Stations, or from the URL at `tempestwx.com/station/<id>`).
+3. Add to your MCP environment:
+
+```json
+{
+  "TEMPEST_TOKEN": "your-token-here",
+  "TEMPEST_STATION_ID": "211167"
+}
+```
+
+### Station resolution
+
+When `TEMPEST_STATION_ID` is not set, StormScope auto-discovers the nearest station associated with your token. If the nearest station is more than 5 miles from the request coordinates, it is not used (to avoid attaching irrelevant data to a distant location). You can also identify a station by name with `TEMPEST_STATION_NAME` (matched case-insensitively against the station's `name` and `public_name` fields).
+
+| Variable | Purpose |
+|----------|---------|
+| `TEMPEST_TOKEN` | Required. Enables all Tempest functionality. |
+| `TEMPEST_STATION_ID` | Use a specific station by numeric ID. |
+| `TEMPEST_STATION_NAME` | Use a specific station by name. |
+| `TEMPEST_USE_STATION_LOCATION` | Set to `true` to use the station's GPS coordinates as the primary location. Requires `TEMPEST_STATION_ID` or `TEMPEST_STATION_NAME`. |
 
 ## Tools
 

@@ -6,6 +6,7 @@ import math
 from datetime import datetime, timezone
 
 from stormscope.config import config
+from stormscope.geo import haversine_km, KM_PER_MI
 from stormscope.iem import IEMClient
 from stormscope.nws import NWSClient
 from stormscope.openmeteo import OpenMeteoClient
@@ -16,6 +17,7 @@ from stormscope.units import (
     parse_units,
 )
 from stormscope.vorticity import compute_vorticity
+from stormscope.tempest import TempestClient
 from stormscope.wpc import WPCClient, FRONT_TYPES, CENTER_TYPES
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,7 @@ _spc = SPCClient()
 _iem = IEMClient()
 _openmeteo = OpenMeteoClient()
 _wpc = WPCClient()
+_tempest: TempestClient | None = TempestClient(config.tempest_token) if config.tempest_enabled else None
 
 
 async def shutdown():
@@ -34,6 +37,226 @@ async def shutdown():
     await _iem.close()
     await _openmeteo.close()
     await _wpc.close()
+    if _tempest is not None:
+        await _tempest.close()
+
+
+async def _get_tempest_station(lat: float, lon: float) -> dict | None:
+    """resolve tempest station for given coords.
+
+    delegates to TempestClient's TTL cache, which keys on (station_id, station_name,
+    lat, lon), so each distinct query location is cached independently.
+    """
+    if _tempest is None:
+        return None
+    try:
+        return await _tempest.resolve_station(
+            lat, lon,
+            station_id=config.tempest_station_id,
+            station_name=config.tempest_station_name,
+        )
+    except Exception:
+        logger.debug("tempest station resolution failed", exc_info=True)
+        return None
+
+
+async def get_tempest_station_location() -> tuple[float, float] | None:
+    """return (lat, lon) of the configured tempest station, or None.
+
+    bypasses the distance gate because we are fetching the station's own
+    coordinates, not checking whether it is close enough to enrich a query.
+    """
+    if _tempest is None:
+        return None
+    try:
+        station = await _tempest.resolve_station(
+            0.0, 0.0,
+            station_id=config.tempest_station_id,
+            station_name=config.tempest_station_name,
+            bypass_distance_check=True,
+        )
+        if station is None:
+            return None
+        lat = station.get("latitude")
+        lon = station.get("longitude")
+        if lat is None or lon is None:
+            return None
+        return float(lat), float(lon)
+    except Exception:
+        logger.debug("tempest station location resolution failed", exc_info=True)
+        return None
+
+
+def _merge_tempest_conditions(
+    nws_result: dict,
+    obs: dict,
+    prefs: UnitPrefs,
+) -> dict:
+    """enrich NWS conditions dict with Tempest hyper-local sensor data."""
+    result = dict(nws_result)
+
+    normalized = _tempest.normalize_obs(obs, prefs) if _tempest else obs
+
+    # unit-agnostic Tempest-only fields (normalize_obs does not touch these)
+    solar = normalized.get("solar_radiation")
+    if solar is not None:
+        result["solar_radiation"] = f"{round(solar)} W/m²"
+
+    uv = normalized.get("uv")
+    if uv is not None:
+        result["uv_index"] = round(uv, 1)
+
+    lightning = normalized.get("lightning_strike_count_last_1hr") or normalized.get("lightning_strike_count")
+    if lightning is not None:
+        result["lightning_strikes_1hr"] = int(lightning)
+
+    air_density = normalized.get("air_density")
+    if air_density is not None:
+        result["air_density"] = f"{air_density:.3f} kg/m³"
+
+    # wet_bulb_temperature is normalized to prefs.temperature unit
+    wet_bulb_n = normalized.get("wet_bulb_temperature")
+    if wet_bulb_n is not None:
+        f_val = wet_bulb_n if prefs.temperature == "f" else None
+        c_val = wet_bulb_n if prefs.temperature == "c" else None
+        result["wet_bulb_temperature"] = _fmt_temp(f_val, c_val, prefs)
+
+    trend = normalized.get("pressure_trend")
+    if trend is not None:
+        result["pressure_trend"] = trend
+
+    station_name = obs.get("station_name") or obs.get("name")
+    if station_name:
+        result["tempest_station"] = station_name
+
+    # prefer Tempest values for hyper-local readings if obs is more recent
+    nws_time = nws_result.get("observation_time", "")
+    tempest_time_epoch = obs.get("timestamp") or obs.get("epoch")
+    tempest_more_recent = False
+    if tempest_time_epoch and nws_time and nws_time != "N/A":
+        try:
+            nws_dt = datetime.fromisoformat(nws_time)
+            if nws_dt.tzinfo is None:
+                nws_dt = nws_dt.replace(tzinfo=timezone.utc)
+            # tempest timestamp is Unix epoch seconds
+            tempest_dt = datetime.fromtimestamp(int(tempest_time_epoch), tz=timezone.utc)
+            tempest_more_recent = tempest_dt > nws_dt
+        except Exception:
+            pass
+
+    if tempest_more_recent:
+        # normalized values are already in prefs units
+        temp_n = normalized.get("air_temperature")
+        if temp_n is not None:
+            f_val = temp_n if prefs.temperature == "f" else None
+            c_val = temp_n if prefs.temperature == "c" else None
+            result["temperature"] = _fmt_temp(f_val, c_val, prefs)
+            result["data_source"] = "tempest"
+        feels_n = normalized.get("feels_like")
+        if feels_n is not None:
+            f_val = feels_n if prefs.temperature == "f" else None
+            c_val = feels_n if prefs.temperature == "c" else None
+            result["feels_like"] = _fmt_temp(f_val, c_val, prefs)
+        humidity = normalized.get("relative_humidity")
+        if humidity is not None:
+            result["humidity"] = _fmt_humidity(humidity)
+        wind_n = normalized.get("wind_avg")
+        wind_dir = obs.get("wind_direction")  # degrees, no unit conversion
+        if wind_n is not None:
+            cardinal = degrees_to_cardinal(wind_dir)
+            result["wind"] = _fmt_wind(wind_n, cardinal, prefs)
+        pressure_n = normalized.get("station_pressure")
+        if pressure_n is not None:
+            if prefs.pressure == "inhg":
+                result["pressure"] = _fmt_pressure(pressure_n, None, prefs)
+            else:
+                # normalized is mb; _fmt_pressure needs Pa
+                result["pressure"] = _fmt_pressure(None, pressure_n * 100, prefs)
+    else:
+        result["data_source"] = "nws"
+
+    return result
+
+
+def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: UnitPrefs) -> dict:
+    """add sunrise/sunset and supplementary Tempest data to NWS forecast."""
+    result = dict(nws_result)
+
+    fc = tempest_forecast.get("forecast", {})
+    daily_list = fc.get("daily", [])
+
+    # build date → tempest daily lookup
+    tempest_by_date: dict[str, dict] = {}
+    for td in daily_list:
+        day_start = td.get("day_start_local")
+        if day_start is not None:
+            try:
+                dt = datetime.fromtimestamp(day_start, tz=timezone.utc)
+                date_key = dt.strftime("%Y-%m-%d")
+                tempest_by_date[date_key] = td
+            except Exception:
+                pass
+
+    enriched_periods = []
+    for period in result.get("periods", []):
+        p = dict(period)
+        start_str = p.get("start_time") or ""
+        date_key = None
+        if start_str:
+            try:
+                dt = datetime.fromisoformat(start_str)
+                date_key = dt.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+        if date_key and date_key in tempest_by_date:
+            td = tempest_by_date[date_key]
+            sunrise = td.get("sunrise")
+            sunset = td.get("sunset")
+            if sunrise is not None:
+                try:
+                    p["sunrise"] = datetime.fromtimestamp(sunrise, tz=timezone.utc).isoformat()
+                except Exception:
+                    pass
+            if sunset is not None:
+                try:
+                    p["sunset"] = datetime.fromtimestamp(sunset, tz=timezone.utc).isoformat()
+                except Exception:
+                    pass
+
+            # air_max/air_min come from Tempest in the requested temp unit
+            t_high = td.get("air_max")
+            t_low = td.get("air_min")
+            if t_high is not None:
+                f_val = t_high if prefs.temperature == "f" else None
+                c_val = t_high if prefs.temperature == "c" else None
+                p["tempest_high"] = _fmt_temp(f_val, c_val, prefs)
+            if t_low is not None:
+                f_val = t_low if prefs.temperature == "f" else None
+                c_val = t_low if prefs.temperature == "c" else None
+                p["tempest_low"] = _fmt_temp(f_val, c_val, prefs)
+
+            conditions = td.get("conditions")
+            if conditions:
+                p["tempest_conditions"] = conditions
+
+            # precip from Tempest is in mm (API does not support cm); convert when needed
+            precip_mm = td.get("precip")
+            if precip_mm is not None:
+                if prefs.accumulation == "cm":
+                    p["tempest_precip"] = f"{precip_mm / 10:.1f} cm"
+                else:
+                    p["tempest_precip"] = _fmt_accumulation(precip_mm, prefs)
+
+        enriched_periods.append(p)
+
+    result["periods"] = enriched_periods
+
+    station_name = tempest_forecast.get("station_name") or fc.get("station_name")
+    if station_name:
+        result["tempest_station"] = station_name
+
+    return result
 
 
 def _obs_value(obs: dict, field: str) -> float | None:
@@ -210,6 +433,28 @@ _SEVERITY_ORDER = {
 }
 
 
+async def _fetch_tempest_obs(lat: float, lon: float) -> dict | None:
+    """fetch tempest observations for the nearest station, or None on any failure."""
+    if _tempest is None:
+        return None
+    try:
+        station = await _get_tempest_station(lat, lon)
+        if station is None:
+            return None
+        sid = station.get("station_id")
+        if sid is None:
+            return None
+        obs = await _tempest.get_observations(sid)
+        if obs is None:
+            return None
+        # attach station name for display
+        obs["station_name"] = station.get("name") or station.get("public_name")
+        return obs
+    except Exception:
+        logger.debug("tempest observation fetch failed", exc_info=True)
+        return None
+
+
 async def get_conditions(
     latitude: float, longitude: float, detail: str = "standard",
     units: str | None = None,
@@ -223,7 +468,16 @@ async def get_conditions(
             return {"error": "no observation stations found near this location"}
 
         station = stations[0]
-        obs = await _nws.get_latest_observation(station["stationIdentifier"])
+        obs, tempest_obs = await asyncio.gather(
+            _nws.get_latest_observation(station["stationIdentifier"]),
+            _fetch_tempest_obs(latitude, longitude),
+            return_exceptions=True,
+        )
+        if isinstance(obs, Exception):
+            raise obs
+        if isinstance(tempest_obs, Exception):
+            logger.debug("tempest obs gather failed: %s", tempest_obs)
+            tempest_obs = None
 
         temp_c = _obs_value(obs, "temperature")
         wind_chill_c = _obs_value(obs, "windChill")
@@ -268,6 +522,9 @@ async def get_conditions(
             result["present_weather"] = obs.get("presentWeather", [])
             result["wind_direction"] = cardinal or "N/A"
             result["raw_observation"] = obs.get("rawMessage", "")
+
+        if tempest_obs is not None:
+            result = _merge_tempest_conditions(result, tempest_obs, prefs)
 
         return result
     except ValueError as exc:
@@ -347,6 +604,23 @@ def _build_forecast_period(
     return entry
 
 
+async def _fetch_tempest_forecast(lat: float, lon: float, prefs: UnitPrefs) -> dict | None:
+    """fetch tempest forecast for nearest station, or None on failure."""
+    if _tempest is None:
+        return None
+    try:
+        station = await _get_tempest_station(lat, lon)
+        if station is None:
+            return None
+        sid = station.get("station_id")
+        if sid is None:
+            return None
+        return await _tempest.get_forecast(sid, prefs)
+    except Exception:
+        logger.debug("tempest forecast fetch failed", exc_info=True)
+        return None
+
+
 async def get_forecast(
     latitude: float, longitude: float,
     mode: str = "daily", days: int = 7, hours: int = 24,
@@ -361,25 +635,32 @@ async def get_forecast(
         wfo, x, y = point["gridId"], point["gridX"], point["gridY"]
 
         if mode == "hourly":
-            hourly_data, grid_data = await asyncio.gather(
+            hourly_data, grid_data, tempest_fc = await asyncio.gather(
                 _nws.get_hourly_forecast(wfo, x, y),
                 _nws.get_detailed_forecast(wfo, x, y),
+                _fetch_tempest_forecast(latitude, longitude, prefs),
                 return_exceptions=True,
             )
             if isinstance(hourly_data, Exception):
                 raise hourly_data
+            if isinstance(tempest_fc, Exception):
+                logger.debug("tempest forecast gather failed: %s", tempest_fc)
+                tempest_fc = None
             periods = hourly_data.get("periods", [])[:hours]
             gd = grid_data if not isinstance(grid_data, Exception) else {}
             if isinstance(grid_data, Exception):
                 logger.debug("grid data fetch failed, enriched fields unavailable: %s", grid_data)
             arrays = _extract_grid_arrays(gd, periods)
-            return {
+            result = {
                 "location": _location_name(point),
                 "periods": [
                     _build_forecast_period(p, i, arrays, prefs)
                     for i, p in enumerate(periods)
                 ],
             }
+            if tempest_fc is not None:
+                result = _merge_tempest_forecast(result, tempest_fc, prefs)
+            return result
 
         if mode == "raw":
             data = await _nws.get_detailed_forecast(wfo, x, y)
@@ -397,13 +678,17 @@ async def get_forecast(
             }
 
         # daily (default)
-        forecast_data, grid_data = await asyncio.gather(
+        forecast_data, grid_data, tempest_fc = await asyncio.gather(
             _nws.get_forecast(wfo, x, y),
             _nws.get_detailed_forecast(wfo, x, y),
+            _fetch_tempest_forecast(latitude, longitude, prefs),
             return_exceptions=True,
         )
         if isinstance(forecast_data, Exception):
             raise forecast_data
+        if isinstance(tempest_fc, Exception):
+            logger.debug("tempest forecast gather failed: %s", tempest_fc)
+            tempest_fc = None
         periods = forecast_data.get("periods", [])
         max_periods = days * 2
         periods = periods[:max_periods]
@@ -425,6 +710,9 @@ async def get_forecast(
         valid_pressures = [v for v in arrays["pressure"] if v is not None]
         if valid_pressures:
             result["pressure_trend"] = _compute_trend(valid_pressures)
+
+        if tempest_fc is not None:
+            result = _merge_tempest_forecast(result, tempest_fc, prefs)
 
         return result
     except ValueError as exc:
@@ -669,6 +957,12 @@ async def get_briefing(
     else:
         summary["alerts_error"] = alerts["error"]
 
+    # surface tempest station name if active
+    if config.tempest_enabled:
+        ts_name = current.get("tempest_station")
+        if ts_name:
+            summary["tempest_station"] = ts_name
+
     if detail == "full":
         extra_tasks = []
         risk_level = severe.get("risk_level", "NONE") if isinstance(severe, dict) else "NONE"
@@ -836,18 +1130,6 @@ async def get_upper_air(
         return {"error": f"failed to fetch upper-air data: {exc}"}
 
 
-_EARTH_RADIUS_KM = 6371.0
-_KM_PER_MI = 1.609344
-
-
-def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    rlat1, rlon1 = math.radians(lat1), math.radians(lon1)
-    rlat2, rlon2 = math.radians(lat2), math.radians(lon2)
-    dlat = rlat2 - rlat1
-    dlon = rlon2 - rlon1
-    a = math.sin(dlat / 2) ** 2 + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2
-    return _EARTH_RADIUS_KM * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
 
 def _bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     rlat1, rlon1 = math.radians(lat1), math.radians(lon1)
@@ -875,14 +1157,14 @@ def _nearest_point_on_line(lat: float, lon: float, coords: list) -> tuple[float,
         else:
             t = max(0, min(1, ((lon - ax) * dx + (lat - ay) * dy) / (dx * dx + dy * dy)))
             px, py = ax + t * dx, ay + t * dy
-        d = _haversine_km(lat, lon, py, px)
+        d = haversine_km(lat, lon, py, px)
         if d < best_dist:
             best_dist = d
             best_pt = (py, px)
 
     # single-point linestring: loop didn't execute, compute distance to the only point
     if best_dist == float("inf"):
-        best_dist = _haversine_km(lat, lon, best_pt[0], best_pt[1])
+        best_dist = haversine_km(lat, lon, best_pt[0], best_pt[1])
 
     return best_pt[0], best_pt[1], best_dist
 
@@ -907,7 +1189,7 @@ def _which_side_of_front(lat: float, lon: float, coords: list, front_type: str) 
         ax, ay = coords[i][0], coords[i][1]
         bx, by = coords[i + 1][0], coords[i + 1][1]
         mx, my = (ax + bx) / 2, (ay + by) / 2
-        d = _haversine_km(lat, lon, my, mx)
+        d = haversine_km(lat, lon, my, mx)
         if d < best_dist:
             best_dist = d
             best_i = i
@@ -928,7 +1210,7 @@ def _which_side_of_front(lat: float, lon: float, coords: list, front_type: str) 
 def _fmt_distance(km: float, prefs: UnitPrefs) -> str:
     if prefs.distance == "km":
         return f"{round(km)} km"
-    mi = km / _KM_PER_MI
+    mi = km / KM_PER_MI
     return f"{round(mi)} mi"
 
 
@@ -989,7 +1271,7 @@ async def get_surface_analysis(
             if not coords or len(coords) < 2:
                 continue
             clat, clon = coords[1], coords[0]
-            dist = _haversine_km(latitude, longitude, clat, clon)
+            dist = haversine_km(latitude, longitude, clat, clon)
             bearing = _bearing_deg(latitude, longitude, clat, clon)
             cardinal = degrees_to_cardinal(bearing)
             entry = {

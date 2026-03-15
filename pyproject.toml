@@ -49,3 +49,26 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_empty = true
+exclude_also = [
+    # Don't complain about missing debug-only code:
+    "def __repr__",
+    "if self\\.debug",
+
+    # Don't complain if non-runnable code isn't run:
+    "if __name__ == .__main__.:",
+
+    # Don't complain about abstract methods, they aren't run:
+    "@(abc\\.)?abstractmethod",
+
+    # Don't complain about MCP configuration itself
+    "mcp = FastMCP",
+]
+omit = [
+     "__init__.py",
+     "__main__.py",
+]

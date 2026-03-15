@@ -99,3 +99,59 @@ class TestFromEnv:
     def test_enable_corelocation_false(self):
         cfg = Config.from_env()
         assert cfg.enable_corelocation is False
+
+
+class TestTempestConfig:
+    @patch.dict(os.environ, {}, clear=True)
+    def test_tempest_disabled_by_default(self):
+        cfg = Config.from_env()
+        assert cfg.tempest_token is None
+        assert cfg.tempest_enabled is False
+
+    @patch.dict(os.environ, {"TEMPEST_TOKEN": "abc123"}, clear=True)
+    def test_tempest_token_from_env(self):
+        cfg = Config.from_env()
+        assert cfg.tempest_token == "abc123"
+        assert cfg.tempest_enabled is True
+
+    @patch.dict(os.environ, {"TEMPEST_TOKEN": "tok", "TEMPEST_STATION_ID": "211167"}, clear=True)
+    def test_tempest_station_id_parsing(self):
+        cfg = Config.from_env()
+        assert cfg.tempest_station_id == 211167
+
+    @patch.dict(os.environ, {"TEMPEST_TOKEN": "tok", "TEMPEST_STATION_ID": "bad"}, clear=True)
+    def test_tempest_station_id_invalid_ignored(self):
+        cfg = Config.from_env()
+        assert cfg.tempest_station_id is None
+
+    @patch.dict(os.environ, {"TEMPEST_TOKEN": "tok", "TEMPEST_STATION_NAME": "Holz Lake"}, clear=True)
+    def test_tempest_station_name_from_env(self):
+        cfg = Config.from_env()
+        assert cfg.tempest_station_name == "Holz Lake"
+
+    @patch.dict(
+        os.environ,
+        {"TEMPEST_TOKEN": "tok", "TEMPEST_USE_STATION_LOCATION": "true", "TEMPEST_STATION_ID": "211167"},
+        clear=True,
+    )
+    def test_tempest_use_station_location_with_id(self):
+        cfg = Config.from_env()
+        assert cfg.tempest_use_station_location is True
+
+    @patch.dict(
+        os.environ,
+        {"TEMPEST_TOKEN": "tok", "TEMPEST_USE_STATION_LOCATION": "true"},
+        clear=True,
+    )
+    def test_tempest_use_station_location_without_id_warns(self):
+        import logging
+        with patch("stormscope.config.logger") as mock_logger:
+            cfg = Config.from_env()
+            assert cfg.tempest_use_station_location is False
+            mock_logger.warning.assert_called_once()
+            assert "TEMPEST_USE_STATION_LOCATION" in mock_logger.warning.call_args[0][0]
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_tempest_use_station_location_default_false(self):
+        cfg = Config.from_env()
+        assert cfg.tempest_use_station_location is False

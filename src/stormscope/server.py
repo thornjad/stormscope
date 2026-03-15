@@ -9,6 +9,9 @@ from stormscope.config import config
 from stormscope.geo import geolocate
 from stormscope.units import parse_units
 
+_tempest_station_location: tuple[float, float] | None = None
+_tempest_station_location_fetched = False
+
 
 @asynccontextmanager
 async def _lifespan(app):
@@ -46,7 +49,14 @@ mcp = FastMCP(
         "Use get_surface_analysis when the user asks about fronts, warm/cold "
         "sectors, surface lows/highs, or synoptic surface patterns. Returns "
         "distance and bearing to nearby fronts and pressure centers, plus "
-        "warm/cold sector detection relative to the nearest cold front."
+        "warm/cold sector detection relative to the nearest cold front.\n\n"
+        "When a Tempest weather station is configured, get_conditions includes "
+        "hyper-local sensor data from the user's personal station: solar_radiation, "
+        "uv_index, lightning_strikes_1hr, air_density, and wet_bulb_temperature. "
+        "The data_source field indicates whether primary readings (temperature, "
+        "wind, pressure) come from the Tempest station or NWS. Forecasts include "
+        "sunrise and sunset times, and supplementary Tempest high/low temperatures "
+        "when available."
     ),
 )
 
@@ -64,9 +74,34 @@ def _validate_units(units: str | None) -> dict | None:
         return {"error": str(exc)}
 
 
+async def _get_tempest_station_location() -> tuple[float, float] | None:
+    """return cached tempest station coords, resolving once on first call."""
+    global _tempest_station_location, _tempest_station_location_fetched
+    if _tempest_station_location_fetched:
+        return _tempest_station_location
+    _tempest_station_location_fetched = True
+    coords = await tools.get_tempest_station_location()
+    _tempest_station_location = coords
+    return coords
+
+
 async def _resolve_location(
     latitude: float | None, longitude: float | None,
 ) -> tuple[float, float]:
+    # explicit params always win
+    if latitude is not None and longitude is not None:
+        if not (-90 <= latitude <= 90):
+            raise ValueError(f"latitude {latitude} out of range, must be -90 to 90")
+        if not (-180 <= longitude <= 180):
+            raise ValueError(f"longitude {longitude} out of range, must be -180 to 180")
+        return latitude, longitude
+
+    # tempest station location override
+    if config.tempest_enabled and config.tempest_use_station_location:
+        coords = await _get_tempest_station_location()
+        if coords is not None:
+            return coords
+
     lat = latitude if latitude is not None else config.primary_latitude
     lon = longitude if longitude is not None else config.primary_longitude
     if lat is not None and lon is not None:

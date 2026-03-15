@@ -14,8 +14,29 @@ from stormscope.geo import (
     geolocate,
     geolocate_corelocation,
     geolocate_ip,
+    haversine_km,
     polygon_to_region,
 )
+
+
+class TestHaversineKm:
+    def test_minneapolis_to_chicago(self):
+        # ~571 km
+        d = haversine_km(44.9778, -93.2650, 41.8781, -87.6298)
+        assert 565 < d < 580
+
+    def test_same_point(self):
+        assert haversine_km(45.0, -93.0, 45.0, -93.0) == 0.0
+
+    def test_short_distance(self):
+        # ~1 km north
+        d = haversine_km(44.0, -93.0, 44.009, -93.0)
+        assert 0.9 < d < 1.1
+
+    def test_symmetry(self):
+        d1 = haversine_km(44.0, -93.0, 45.0, -92.0)
+        d2 = haversine_km(45.0, -92.0, 44.0, -93.0)
+        assert abs(d1 - d2) < 0.001
 
 
 def test_oklahoma_polygon():

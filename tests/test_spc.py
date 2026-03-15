@@ -141,3 +141,60 @@ async def test_stale_fallback_for_categorical(spc_client):
     result = await spc_client.get_categorical_outlook(1)
 
     assert result == MOCK_SPC_OUTLOOK
+
+
+@respx.mock
+async def test_fetch_outlook_categorical_branch(spc_client):
+    """fetch_outlook dispatches to categorical when outlook_type='categorical'."""
+    url = SPC_OUTLOOK_URL.format(day=1)
+    respx.get(url).mock(return_value=httpx.Response(200, json=MOCK_SPC_OUTLOOK))
+
+    result = await spc_client.fetch_outlook(1, "categorical")
+
+    assert "features" in result
+    assert len(result["features"]) == 2
+
+
+async def test_get_spc_outlook_exception(spc_client):
+    """Exception in fetch_outlook returns error dict."""
+    from unittest.mock import AsyncMock
+    spc_client.fetch_outlook = AsyncMock(side_effect=Exception("network error"))
+
+    result = await spc_client.get_spc_outlook(
+        MINNEAPOLIS_LAT, MINNEAPOLIS_LON, 1, "tornado",
+    )
+
+    assert "error" in result
+    assert "tornado" in result["error"]
+
+
+@respx.mock
+async def test_national_outlook_summary(spc_client):
+    """national_outlook_summary returns areas list for each risk level."""
+    url = SPC_OUTLOOK_URL.format(day=1)
+    respx.get(url).mock(return_value=httpx.Response(200, json=MOCK_SPC_OUTLOOK))
+
+    result = await spc_client.get_national_outlook_summary(1)
+
+    assert "areas" in result
+    assert result["day"] == 1
+    # TSTM and MRGL features both present
+    assert len(result["areas"]) == 2
+    risk_levels = {a["risk_level"] for a in result["areas"]}
+    assert "TSTM" in risk_levels
+    assert "MRGL" in risk_levels
+    for area in result["areas"]:
+        assert "risk_description" in area
+        assert "region" in area
+        assert "is_significant" in area
+
+
+@respx.mock
+async def test_national_outlook_summary_error(spc_client):
+    """HTTP failure in national_outlook_summary returns error dict."""
+    url = SPC_OUTLOOK_URL.format(day=1)
+    respx.get(url).mock(return_value=httpx.Response(500))
+
+    result = await spc_client.get_national_outlook_summary(1)
+
+    assert "error" in result
