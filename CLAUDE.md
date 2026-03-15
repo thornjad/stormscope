@@ -30,7 +30,7 @@ All code lives in `src/stormscope/`. The server exposes 9 async MCP tools define
 Supporting modules:
 - **`geo.py`** — Location resolution with a fallback chain: explicit params → Tempest station location (opt-in) → env vars → macOS CoreLocation (opt-in Swift helper) → IP geolocation. Also converts SPC risk polygons to human-readable region descriptions using Shapely. Exports `haversine_km` for great-circle distance calculations.
 - **`cache.py`** — In-memory async TTL cache that returns stale data on fetch failure for API resilience.
-- **`config.py`** — Environment variable configuration (`PRIMARY_LATITUDE`, `PRIMARY_LONGITUDE`, `UNITS`, `ENABLE_CORELOCATION`, `DISABLE_AUTO_GEOLOCATION`, `TEMPEST_TOKEN`, `TEMPEST_STATION_ID`, `TEMPEST_STATION_NAME`, `TEMPEST_USE_STATION_LOCATION`).
+- **`config.py`** — Environment variable configuration (`PRIMARY_LATITUDE`, `PRIMARY_LONGITUDE`, `UNITS`, `ENABLE_CORELOCATION`, `DISABLE_AUTO_GEOLOCATION`, `TEMPEST_TOKEN`, `TEMPEST_STATION_ID`, `TEMPEST_STATION_NAME`, `USE_TEMPEST_STATION_GEOLOCATION`).
 - **`units.py`** — Unit conversion helpers (temperature, wind, distance, pressure, cardinal directions, knots, decameters).
 - **`vorticity.py`** — Pure-math module for computing relative and absolute vorticity from 5-point finite-difference wind fields.
 

@@ -115,9 +115,9 @@ class TestResolveLocation:
     @patch("stormscope.server.tools.get_tempest_station_location", new_callable=AsyncMock)
     @patch("stormscope.server.config")
     async def test_tempest_station_location_override(self, mock_config, mock_get_loc):
-        """TEMPEST_USE_STATION_LOCATION uses the station's coords as primary location."""
+        """USE_TEMPEST_STATION_GEOLOCATION uses the station's coords as primary location."""
         mock_config.tempest_enabled = True
-        mock_config.tempest_use_station_location = True
+        mock_config.use_tempest_station_geolocation = True
         mock_config.primary_latitude = None
         mock_config.primary_longitude = None
         station_lat = TEMPEST_STATION_NEARBY["latitude"]
@@ -144,7 +144,7 @@ class TestResolveLocation:
     async def test_tempest_station_location_fallback_on_none(self, mock_config, mock_get_loc):
         """when station location returns None, fall through to primary location."""
         mock_config.tempest_enabled = True
-        mock_config.tempest_use_station_location = True
+        mock_config.use_tempest_station_geolocation = True
         mock_config.primary_latitude = 44.9
         mock_config.primary_longitude = -93.2
         mock_get_loc.return_value = None

@@ -131,27 +131,27 @@ class TestTempestConfig:
 
     @patch.dict(
         os.environ,
-        {"TEMPEST_TOKEN": "tok", "TEMPEST_USE_STATION_LOCATION": "true", "TEMPEST_STATION_ID": "12345"},
+        {"TEMPEST_TOKEN": "tok", "USE_TEMPEST_STATION_GEOLOCATION": "true", "TEMPEST_STATION_ID": "12345"},
         clear=True,
     )
-    def test_tempest_use_station_location_with_id(self):
+    def test_use_tempest_station_geolocation_with_id(self):
         cfg = Config.from_env()
-        assert cfg.tempest_use_station_location is True
+        assert cfg.use_tempest_station_geolocation is True
 
     @patch.dict(
         os.environ,
-        {"TEMPEST_TOKEN": "tok", "TEMPEST_USE_STATION_LOCATION": "true"},
+        {"TEMPEST_TOKEN": "tok", "USE_TEMPEST_STATION_GEOLOCATION": "true"},
         clear=True,
     )
-    def test_tempest_use_station_location_without_id_warns(self):
+    def test_use_tempest_station_geolocation_without_id_warns(self):
         import logging
         with patch("stormscope.config.logger") as mock_logger:
             cfg = Config.from_env()
-            assert cfg.tempest_use_station_location is False
+            assert cfg.use_tempest_station_geolocation is False
             mock_logger.warning.assert_called_once()
-            assert "TEMPEST_USE_STATION_LOCATION" in mock_logger.warning.call_args[0][0]
+            assert "USE_TEMPEST_STATION_GEOLOCATION" in mock_logger.warning.call_args[0][0]
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_tempest_use_station_location_default_false(self):
+    def test_use_tempest_station_geolocation_default_false(self):
         cfg = Config.from_env()
-        assert cfg.tempest_use_station_location is False
+        assert cfg.use_tempest_station_geolocation is False

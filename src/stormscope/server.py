@@ -97,7 +97,7 @@ async def _resolve_location(
         return latitude, longitude
 
     # tempest station location override
-    if config.tempest_enabled and config.tempest_use_station_location:
+    if config.tempest_enabled and config.use_tempest_station_geolocation:
         coords = await _get_tempest_station_location()
         if coords is not None:
             return coords
