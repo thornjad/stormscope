@@ -1365,19 +1365,11 @@ class TestTempestIntegration:
             "station_pressure": 1013.25,  # mb → ~29.92 inHg
             "wind_direction": 270,
             "solar_radiation": 200,
-            "_station_units": {
-                "units_temp": "c",
-                "units_wind": "mps",
-                "units_pressure": "mb",
-            },
-            # tempest timestamp far in the future so it's "more recent" than NWS
-            "timestamp": 9999999999,
         }
         nws_result = {
             "temperature": "50°F",
             "wind": "W 5 mph",
             "pressure": "29.00 inHg",
-            "observation_time": "2020-01-01T00:00:00+00:00",
         }
 
         import stormscope.tools as tools_mod
@@ -1471,15 +1463,13 @@ class TestTempestIntegration:
             bypass_distance_check=True,
         )
 
-    def test_merge_conditions_nws_time_na_falls_back_to_nws(self):
-        """when observation_time is N/A, tempest values are not promoted to primary."""
+    def test_merge_conditions_tempest_data_source_unconditional(self):
+        """Tempest data_source is always 'tempest' when _merge_tempest_conditions is called."""
         from stormscope.tools import _merge_tempest_conditions
 
         obs = {
-            "timestamp": 9999999999,
             "solar_radiation": 450,
             "uv": 3.2,
-            "_station_units": {},
             "station_name": "Holz Lake",
         }
         nws_result = {
@@ -1488,7 +1478,8 @@ class TestTempestIntegration:
         }
         result = _merge_tempest_conditions(nws_result, obs, US_PREFS)
 
-        assert result["data_source"] == "nws"
+        assert result["data_source"] == "tempest"
+        # no air_temperature in obs, so NWS temperature is not overwritten
         assert result["temperature"] == "72°F"
         assert result["uv_index"] == 3.2
 

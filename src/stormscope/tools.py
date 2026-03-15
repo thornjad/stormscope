@@ -92,7 +92,10 @@ def _merge_tempest_conditions(
     obs: dict,
     prefs: UnitPrefs,
 ) -> dict:
-    """enrich NWS conditions dict with Tempest hyper-local sensor data."""
+    """enrich NWS conditions dict with Tempest hyper-local sensor data.
+
+    Tempest values are always preferred when the station is within range.
+    """
     result = dict(nws_result)
 
     normalized = _tempest.normalize_obs(obs, prefs) if _tempest else obs
@@ -129,51 +132,35 @@ def _merge_tempest_conditions(
     if station_name:
         result["tempest_station"] = station_name
 
-    # prefer Tempest values for hyper-local readings if obs is more recent
-    nws_time = nws_result.get("observation_time", "")
-    tempest_time_epoch = obs.get("timestamp") or obs.get("epoch")
-    tempest_more_recent = False
-    if tempest_time_epoch and nws_time and nws_time != "N/A":
-        try:
-            nws_dt = datetime.fromisoformat(nws_time)
-            if nws_dt.tzinfo is None:
-                nws_dt = nws_dt.replace(tzinfo=timezone.utc)
-            # tempest timestamp is Unix epoch seconds
-            tempest_dt = datetime.fromtimestamp(int(tempest_time_epoch), tz=timezone.utc)
-            tempest_more_recent = tempest_dt > nws_dt
-        except Exception:
-            pass
+    # Tempest values are always preferred when the station is within range;
+    # normalized values are already in prefs units
+    result["data_source"] = "tempest"
 
-    if tempest_more_recent:
-        # normalized values are already in prefs units
-        temp_n = normalized.get("air_temperature")
-        if temp_n is not None:
-            f_val = temp_n if prefs.temperature == "f" else None
-            c_val = temp_n if prefs.temperature == "c" else None
-            result["temperature"] = _fmt_temp(f_val, c_val, prefs)
-            result["data_source"] = "tempest"
-        feels_n = normalized.get("feels_like")
-        if feels_n is not None:
-            f_val = feels_n if prefs.temperature == "f" else None
-            c_val = feels_n if prefs.temperature == "c" else None
-            result["feels_like"] = _fmt_temp(f_val, c_val, prefs)
-        humidity = normalized.get("relative_humidity")
-        if humidity is not None:
-            result["humidity"] = _fmt_humidity(humidity)
-        wind_n = normalized.get("wind_avg")
-        wind_dir = obs.get("wind_direction")  # degrees, no unit conversion
-        if wind_n is not None:
-            cardinal = degrees_to_cardinal(wind_dir)
-            result["wind"] = _fmt_wind(wind_n, cardinal, prefs)
-        pressure_n = normalized.get("station_pressure")
-        if pressure_n is not None:
-            if prefs.pressure == "inhg":
-                result["pressure"] = _fmt_pressure(pressure_n, None, prefs)
-            else:
-                # normalized is mb; _fmt_pressure needs Pa
-                result["pressure"] = _fmt_pressure(None, pressure_n * 100, prefs)
-    else:
-        result["data_source"] = "nws"
+    temp_n = normalized.get("air_temperature")
+    if temp_n is not None:
+        f_val = temp_n if prefs.temperature == "f" else None
+        c_val = temp_n if prefs.temperature == "c" else None
+        result["temperature"] = _fmt_temp(f_val, c_val, prefs)
+    feels_n = normalized.get("feels_like")
+    if feels_n is not None:
+        f_val = feels_n if prefs.temperature == "f" else None
+        c_val = feels_n if prefs.temperature == "c" else None
+        result["feels_like"] = _fmt_temp(f_val, c_val, prefs)
+    humidity = normalized.get("relative_humidity")
+    if humidity is not None:
+        result["humidity"] = _fmt_humidity(humidity)
+    wind_n = normalized.get("wind_avg")
+    wind_dir = obs.get("wind_direction")  # degrees, no unit conversion
+    if wind_n is not None:
+        cardinal = degrees_to_cardinal(wind_dir)
+        result["wind"] = _fmt_wind(wind_n, cardinal, prefs)
+    pressure_n = normalized.get("station_pressure")
+    if pressure_n is not None:
+        if prefs.pressure == "inhg":
+            result["pressure"] = _fmt_pressure(pressure_n, None, prefs)
+        else:
+            # normalized is mb; _fmt_pressure needs Pa
+            result["pressure"] = _fmt_pressure(None, pressure_n * 100, prefs)
 
     return result
 
