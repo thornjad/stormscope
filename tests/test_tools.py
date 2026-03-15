@@ -939,6 +939,44 @@ class TestGetSurfaceAnalysis:
         assert len(result["nearest_fronts"]) == 1
         assert result["nearest_fronts"][0]["type"] == "cold"
 
+    @patch("stormscope.tools._wpc")
+    async def test_null_geometry_does_not_crash(self, mock_wpc):
+        """GeoJSON features with geometry: null must be skipped without raising."""
+        fronts_with_null_geom = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"feat": "COLD_FRONT"},
+                    "geometry": None,
+                },
+                MOCK_WPC_FRONTS["features"][0],
+            ],
+        }
+        centers_with_null_geom = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"feat": "LOW"},
+                    "geometry": None,
+                },
+            ],
+        }
+        mock_wpc.get_surface_analysis = AsyncMock(
+            return_value=(fronts_with_null_geom, centers_with_null_geom),
+        )
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        # null-geometry feature skipped; valid cold front still present
+        assert len(result["nearest_fronts"]) == 1
+        assert result["nearest_fronts"][0]["type"] == "cold"
+        # null-geometry center skipped
+        assert result["nearest_pressure_centers"] == []
+
 
 class TestNearestPointOnLine:
     def test_midpoint_of_segment(self):

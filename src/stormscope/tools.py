@@ -1227,11 +1227,11 @@ async def get_surface_analysis(
 
         parsed_fronts = []
         for feat in fronts_data.get("features", []):
-            props = feat.get("properties", {})
+            props = feat.get("properties") or {}
             feat_type = FRONT_TYPES.get(props.get("feat", ""))
             if feat_type is None:
                 continue
-            geom = feat.get("geometry", {})
+            geom = feat.get("geometry") or {}
             geom_type = geom.get("type", "")
             raw_coords = geom.get("coordinates", [])
             if not raw_coords:
@@ -1262,11 +1262,11 @@ async def get_surface_analysis(
 
         parsed_centers = []
         for feat in centers_data.get("features", []):
-            props = feat.get("properties", {})
+            props = feat.get("properties") or {}
             center_type = CENTER_TYPES.get(props.get("feat", ""))
             if center_type is None:
                 continue
-            geom = feat.get("geometry", {})
+            geom = feat.get("geometry") or {}
             coords = geom.get("coordinates", [])
             if not coords or len(coords) < 2:
                 continue
