@@ -1231,7 +1231,6 @@ class TestTempestIntegration:
         from stormscope.tempest import TempestClient
         mock = AsyncMock(spec=TempestClient)
         obs = dict(MOCK_TEMPEST_OBSERVATION_RESPONSE["obs"][0])
-        obs["_station_units"] = MOCK_TEMPEST_OBSERVATION_RESPONSE["station_units"]
         obs["station_name"] = "Holz Lake"
         mock.get_observations.return_value = obs
         mock.get_stations.return_value = MOCK_TEMPEST_STATIONS_RESPONSE["stations"]

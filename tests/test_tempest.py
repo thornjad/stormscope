@@ -102,7 +102,7 @@ async def test_get_observations(client):
     assert obs is not None
     assert obs["air_temperature"] == 18.5
     assert obs["solar_radiation"] == 450
-    assert "_station_units" in obs
+    assert "_station_units" not in obs
 
 
 @respx.mock
@@ -264,3 +264,19 @@ async def test_resolve_station_no_match_cached(client):
     assert result1 is None
     assert result2 is None
     assert route.call_count == 1
+
+
+def test_normalize_obs_fahrenheit_station_units_ignored(client):
+    """regression: station display pref of 'f' must not cause obs to be misread.
+
+    the API returns obs in SI (°C) regardless of station display preferences.
+    when station_units.units_temp == 'f', normalize_obs must still treat the
+    raw value as Celsius. -2.28°C → 27.9°F, not -2°F.
+    """
+    obs = {
+        "air_temperature": -2.28,
+        "_station_units": {"units_temp": "f"},
+    }
+    result = client.normalize_obs(obs, _US_PREFS)
+    # -2.28°C == ~27.9°F
+    assert abs(result["air_temperature"] - 27.9) < 0.2

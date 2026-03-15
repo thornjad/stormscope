@@ -152,10 +152,7 @@ class TempestClient(BaseAPIClient):
             obs_list = data.get("obs", [])
             if not obs_list:
                 return None
-            station_units = data.get("station_units", {})
-            result = dict(obs_list[0])
-            result["_station_units"] = station_units
-            return result
+            return dict(obs_list[0])
         return await self._cache.get_or_fetch(f"obs:{station_id}", 120, _fetch)
 
     async def get_forecast(self, station_id: int, prefs: UnitPrefs) -> dict:
@@ -183,15 +180,17 @@ class TempestClient(BaseAPIClient):
     def normalize_obs(self, obs: dict, prefs: UnitPrefs) -> dict:
         """convert observation values to user's preferred units.
 
-        The Tempest API returns observations in SI (metric) units by default:
-        air_temperature: °C, wind_avg/gust/lull: m/s, station_pressure: mb.
-        The _station_units dict indicates actual units.
+        get_observations calls /observations/station/{id} without unit params,
+        so the API always returns data in SI: air_temperature in °C,
+        wind_avg/gust/lull in m/s, station_pressure in mb. station_units in
+        the response reflects the user's display preference, not the units of
+        the response data, and must not be used to infer input units here.
         """
         result = dict(obs)
-        station_units = obs.get("_station_units", {})
 
-        temp_unit = station_units.get("units_temp", "c")
-        wind_unit = station_units.get("units_wind", "mps")
+        # obs data is always SI regardless of station display preferences
+        temp_unit = "c"
+        wind_unit = "mps"
 
         # normalize temperature fields
         for field in ("air_temperature", "wet_bulb_temperature", "feels_like",
@@ -230,8 +229,8 @@ class TempestClient(BaseAPIClient):
             else:
                 result[field] = ms
 
-        # normalize pressure
-        press_unit = station_units.get("units_pressure", "mb")
+        # normalize pressure (always mb from API)
+        press_unit = "mb"
         val = obs.get("station_pressure")
         if val is not None:
             # convert to Pa first
