@@ -1483,3 +1483,44 @@ class TestTempestIntegration:
         assert result["temperature"] == "72°F"
         assert result["uv_index"] == 3.2
 
+    def test_merge_conditions_sensor_divergence_large_diff(self):
+        """sensor_divergence is emitted when Tempest and NWS temps differ by >5°F."""
+        from stormscope.tempest import TempestClient
+        from stormscope.tools import _merge_tempest_conditions
+
+        client = TempestClient(token="test")
+        # -2.28°C → ~27.9°F; NWS reports 58°F → diff ~30°F
+        obs = {"air_temperature": -2.28}
+        nws_result = {"temperature": "58°F"}
+
+        import stormscope.tools as tools_mod
+        orig = tools_mod._tempest
+        tools_mod._tempest = client
+        try:
+            result = _merge_tempest_conditions(nws_result, obs, US_PREFS, nws_temp_f=58.0)
+        finally:
+            tools_mod._tempest = orig
+
+        assert "sensor_divergence" in result
+        assert "27." in result["sensor_divergence"]
+
+    def test_merge_conditions_sensor_divergence_small_diff(self):
+        """no sensor_divergence when Tempest and NWS temps are within 5°F."""
+        from stormscope.tempest import TempestClient
+        from stormscope.tools import _merge_tempest_conditions
+
+        client = TempestClient(token="test")
+        # -2.28°C → ~27.9°F; NWS reports 28°F → diff ~0.1°F
+        obs = {"air_temperature": -2.28}
+        nws_result = {"temperature": "28°F"}
+
+        import stormscope.tools as tools_mod
+        orig = tools_mod._tempest
+        tools_mod._tempest = client
+        try:
+            result = _merge_tempest_conditions(nws_result, obs, US_PREFS, nws_temp_f=28.0)
+        finally:
+            tools_mod._tempest = orig
+
+        assert "sensor_divergence" not in result
+

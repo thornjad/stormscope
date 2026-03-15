@@ -91,10 +91,12 @@ def _merge_tempest_conditions(
     nws_result: dict,
     obs: dict,
     prefs: UnitPrefs,
+    nws_temp_f: float | None = None,
 ) -> dict:
     """enrich NWS conditions dict with Tempest hyper-local sensor data.
 
     Tempest values are always preferred when the station is within range.
+    nws_temp_f is the NWS temperature in °F, used to detect sensor divergence.
     """
     result = dict(nws_result)
 
@@ -141,6 +143,17 @@ def _merge_tempest_conditions(
         f_val = temp_n if prefs.temperature == "f" else None
         c_val = temp_n if prefs.temperature == "c" else None
         result["temperature"] = _fmt_temp(f_val, c_val, prefs)
+
+        # emit divergence warning when Tempest and NWS temps differ by >5°F
+        if nws_temp_f is not None:
+            tempest_f = temp_n if prefs.temperature == "f" else c_to_f(temp_n)
+            if tempest_f is not None and abs(tempest_f - nws_temp_f) > 5.0:
+                diff = round(abs(tempest_f - nws_temp_f))
+                result["sensor_divergence"] = (
+                    f"Tempest {tempest_f:.1f}°F vs NWS {nws_temp_f:.1f}°F "
+                    f"({diff}°F difference) — verify sensor or station placement"
+                )
+
     feels_n = normalized.get("feels_like")
     if feels_n is not None:
         f_val = feels_n if prefs.temperature == "f" else None
@@ -511,7 +524,7 @@ async def get_conditions(
             result["raw_observation"] = obs.get("rawMessage", "")
 
         if tempest_obs is not None:
-            result = _merge_tempest_conditions(result, tempest_obs, prefs)
+            result = _merge_tempest_conditions(result, tempest_obs, prefs, nws_temp_f=temp_f)
 
         return result
     except ValueError as exc:
