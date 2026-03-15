@@ -1,8 +1,8 @@
 # StormScope
 
-Real-time US weather data for AI assistants via MCP. Uses the free NWS API, NOAA Storm Prediction Center data, NOAA Weather Prediction Center surface analysis, Iowa Environmental Mesonet radar, and Open-Meteo pressure-level model data.
+Real-time US weather data for AI assistants via MCP. Uses the NWS API, NOAA Storm Prediction Center data, NOAA Weather Prediction Center surface analysis, Iowa Environmental Mesonet radar, and Open-Meteo pressure-level model data. Optionally uses data from your Tempest personal weather station.
 
-US locations only. Covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return a clear error. The SPC national outlook covers the contiguous US only.
+**US locations only**. Covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return a clear error. The SPC national outlook covers the contiguous US only.
 
 ## What it does
 
@@ -45,35 +45,35 @@ Or add to your Claude Code MCP config:
 
 ## Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PRIMARY_LATITUDE` | none | Default latitude when coordinates aren't passed explicitly |
-| `PRIMARY_LONGITUDE` | none | Default longitude when coordinates aren't passed explicitly |
-| `UNITS` | `us` | Unit system (`us` or `si`) |
-| `ENABLE_CORELOCATION` | `false` | Set to `true` to enable macOS CoreLocation (requires Xcode Command Line Tools) |
-| `DISABLE_AUTO_GEOLOCATION` | `false` | Set to `true` to disable CoreLocation and IP geolocation |
-| `TEMPEST_TOKEN` | none | Tempest Personal Access Token — enables Tempest station integration |
-| `TEMPEST_STATION_ID` | none | Explicit station ID to use (optional, see [Tempest station](#tempest-weather-station)) |
-| `TEMPEST_STATION_NAME` | none | Station name to match instead of ID (optional) |
-| `TEMPEST_USE_STATION_LOCATION` | `false` | Use Tempest station coordinates as the primary location |
+| Variable                       | Default | Description                                                                            |
+|--------------------------------|---------|----------------------------------------------------------------------------------------|
+| `PRIMARY_LATITUDE`             | none    | Default latitude when coordinates aren't passed explicitly                             |
+| `PRIMARY_LONGITUDE`            | none    | Default longitude when coordinates aren't passed explicitly                            |
+| `UNITS`                        | `us`    | Unit system (`us` or `si`)                                                             |
+| `ENABLE_CORELOCATION`          | `false` | Set to `true` to enable macOS CoreLocation (requires Xcode Command Line Tools)         |
+| `DISABLE_AUTO_GEOLOCATION`     | `false` | Set to `true` to disable CoreLocation and IP geolocation                               |
+| `TEMPEST_TOKEN`                | none    | Tempest Personal Access Token — enables Tempest station integration                    |
+| `TEMPEST_STATION_ID`           | none    | Explicit station ID to use (optional, see [Tempest station](#tempest-weather-station)) |
+| `TEMPEST_STATION_NAME`         | none    | Station name to match instead of ID (optional)                                         |
+| `USE_TEMPEST_STATION_GEOLOCATION` | `false` | Use Tempest station coordinates as the primary location                                |
 
 ### Location detection
 
 All location-aware tools accept optional `latitude` and `longitude` parameters. When omitted, the server resolves location through a fallback chain:
 
 1. **Explicit `latitude`/`longitude` params** — the AI can pass coordinates for any location
-2. **Tempest station location** (opt-in) — set `TEMPEST_USE_STATION_LOCATION=true` with a configured station to use its coordinates
+2. **Tempest station location** (opt-in) — set `USE_TEMPEST_STATION_GEOLOCATION=true` with a configured station to use its coordinates
 3. **`PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE` env vars** — precise, recommended for your home location
 4. **macOS CoreLocation** (opt-in) — set `ENABLE_CORELOCATION=true`, requires Xcode Command Line Tools, ~100m WiFi-based accuracy, prompts for location permission on first use. Compiles a small Swift helper into `~/Library/Application Support/stormscope/`
 5. **IP geolocation** via [ipinfo.io](https://ipinfo.io) — automatic, city-level accuracy, one request per session
 
 Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geolocation (tiers 4 and 5). With auto-geolocation disabled and no env vars or explicit params, tools return an error.
 
-## Tempest weather station
+## Tempest personal weather station
 
 If you have a [Tempest](https://tempest.earth/tempest-home-weather-system/) personal weather station, StormScope can enrich NWS data with hyper-local sensor readings that NWS cannot provide: solar radiation, UV index, lightning strike counts, air density, and wet bulb temperature. Tempest also supplies sunrise/sunset times in its forecast, which are added to `get_forecast` output.
 
-**Tempest data supplements NWS — it does not replace it.** NWS provides authoritative alert text, detailed narrative forecasts, and broad coverage. Tempest provides hyper-local precision at your exact station location. When a Tempest station is within range, StormScope uses Tempest values for temperature, feels-like, humidity, wind, and pressure, and sets `data_source: "tempest"` in the response.
+**Tempest data supplements NWS, it doesn't replace it.** NWS provides authoritative alert text, detailed narrative forecasts, and broad coverage. Tempest provides hyper-local precision at your exact station location. When a Tempest station is within range, StormScope uses Tempest values for temperature, feels-like, humidity, wind, and pressure, and sets `data_source: "tempest"` in the response.
 
 If the Tempest API is unavailable, all tools fall back to NWS data without error.
 
@@ -94,26 +94,27 @@ If the Tempest API is unavailable, all tools fall back to NWS data without error
 
 When `TEMPEST_STATION_ID` is not set, StormScope auto-discovers the nearest station associated with your token. If the nearest station is more than 5 miles from the request coordinates, it is not used (to avoid attaching irrelevant data to a distant location). You can also identify a station by name with `TEMPEST_STATION_NAME` (matched case-insensitively against the station's `name` and `public_name` fields).
 
-| Variable | Purpose |
-|----------|---------|
-| `TEMPEST_TOKEN` | Required. Enables all Tempest functionality. |
-| `TEMPEST_STATION_ID` | Use a specific station by numeric ID. |
-| `TEMPEST_STATION_NAME` | Use a specific station by name. |
-| `TEMPEST_USE_STATION_LOCATION` | Set to `true` to use the station's GPS coordinates as the primary location. Requires `TEMPEST_STATION_ID` or `TEMPEST_STATION_NAME`. |
+| Variable                       | Purpose                                                                                                                              |
+|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `TEMPEST_TOKEN`                | Required. Enables all Tempest functionality.                                                                                         |
+| `TEMPEST_STATION_ID`           | Use a specific station by numeric ID.                                                                                                |
+| `TEMPEST_STATION_NAME`         | Use a specific station by name.                                                                                                      |
+| `USE_TEMPEST_STATION_GEOLOCATION` | Set to `true` to use the station's GPS coordinates as the primary location. Requires `TEMPEST_STATION_ID` or `TEMPEST_STATION_NAME`. |
+|                                |                                                                                                                                      |
 
 ## Tools
 
-| Tool | Description | Key params |
-|------|-------------|------------|
-| `get_conditions` | Current conditions at a station | `detail`: standard or full |
-| `get_forecast` | Forecast in multiple formats | `mode`: daily, hourly, or raw; `days` (1-7, default 7); `hours` (1-48, default 24) |
-| `get_alerts` | Active weather alerts | `severity_filter`: Extreme, Severe, Moderate, or Minor; `detail`: standard or full |
-| `get_spc_outlook` | SPC outlook for a point | `outlook_type`: categorical, tornado, wind, or hail; `day`: 1-3 |
-| `get_national_outlook` | CONUS-wide risk areas (no lat/lon) | `day`: 1-3 |
-| `get_radar` | NEXRAD radar with textual summary and clickable links | |
-| `get_upper_air` | 500mb heights, temperature, wind, derived vorticity (Open-Meteo) | |
-| `get_surface_analysis` | Fronts, pressure centers, warm/cold sector detection (WPC) | `day`: 1-3; `detail`: standard or full |
-| `get_briefing` | Combined briefing, the default for general weather questions | `detail`: standard or full |
+| Tool                   | Description                                                      | Key params                                                                         |
+|------------------------|------------------------------------------------------------------|------------------------------------------------------------------------------------|
+| `get_conditions`       | Current conditions at a station                                  | `detail`: standard or full                                                         |
+| `get_forecast`         | Forecast in multiple formats                                     | `mode`: daily, hourly, or raw; `days` (1-7, default 7); `hours` (1-48, default 24) |
+| `get_alerts`           | Active weather alerts                                            | `severity_filter`: Extreme, Severe, Moderate, or Minor; `detail`: standard or full |
+| `get_spc_outlook`      | SPC outlook for a point                                          | `outlook_type`: categorical, tornado, wind, or hail; `day`: 1-3                    |
+| `get_national_outlook` | CONUS-wide risk areas (no lat/lon)                               | `day`: 1-3                                                                         |
+| `get_radar`            | NEXRAD radar with textual summary and clickable links            |                                                                                    |
+| `get_upper_air`        | 500mb heights, temperature, wind, derived vorticity (Open-Meteo) |                                                                                    |
+| `get_surface_analysis` | Fronts, pressure centers, warm/cold sector detection (WPC)       | `day`: 1-3; `detail`: standard or full                                             |
+| `get_briefing`         | Combined briefing, the default for general weather questions     | `detail`: standard or full                                                         |
 
 All location-aware tools accept optional `latitude`/`longitude`, falling back to the configured location (see [Location detection](#location-detection)).
 
@@ -192,4 +193,4 @@ uv run python -m pytest
 
 ## License
 
-ISC
+[ISC](./LICENSE)
