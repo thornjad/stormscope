@@ -114,10 +114,10 @@ class TestTempestConfig:
         assert cfg.tempest_token == "abc123"
         assert cfg.tempest_enabled is True
 
-    @patch.dict(os.environ, {"TEMPEST_TOKEN": "tok", "TEMPEST_STATION_ID": "211167"}, clear=True)
+    @patch.dict(os.environ, {"TEMPEST_TOKEN": "tok", "TEMPEST_STATION_ID": "12345"}, clear=True)
     def test_tempest_station_id_parsing(self):
         cfg = Config.from_env()
-        assert cfg.tempest_station_id == 211167
+        assert cfg.tempest_station_id == 12345
 
     @patch.dict(os.environ, {"TEMPEST_TOKEN": "tok", "TEMPEST_STATION_ID": "bad"}, clear=True)
     def test_tempest_station_id_invalid_ignored(self):
@@ -131,7 +131,7 @@ class TestTempestConfig:
 
     @patch.dict(
         os.environ,
-        {"TEMPEST_TOKEN": "tok", "TEMPEST_USE_STATION_LOCATION": "true", "TEMPEST_STATION_ID": "211167"},
+        {"TEMPEST_TOKEN": "tok", "TEMPEST_USE_STATION_LOCATION": "true", "TEMPEST_STATION_ID": "12345"},
         clear=True,
     )
     def test_tempest_use_station_location_with_id(self):

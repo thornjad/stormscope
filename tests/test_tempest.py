@@ -34,7 +34,7 @@ async def test_get_stations(client):
     respx.get(f"{_BASE}/stations").mock(return_value=httpx.Response(200, json=MOCK_TEMPEST_STATIONS_RESPONSE))
     stations = await client.get_stations()
     assert len(stations) == 2
-    assert stations[0]["station_id"] == 211167
+    assert stations[0]["station_id"] == 12345
 
 
 @respx.mock
@@ -49,9 +49,9 @@ async def test_get_stations_cached(client):
 @respx.mock
 async def test_resolve_station_by_id(client):
     respx.get(f"{_BASE}/stations").mock(return_value=httpx.Response(200, json=MOCK_TEMPEST_STATIONS_RESPONSE))
-    station = await client.resolve_station(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, station_id=211167)
+    station = await client.resolve_station(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, station_id=12345)
     assert station is not None
-    assert station["station_id"] == 211167
+    assert station["station_id"] == 12345
 
 
 @respx.mock
@@ -83,7 +83,7 @@ async def test_resolve_station_closest(client):
     # use coords near the nearby station (44.990, -93.270)
     station = await client.resolve_station(44.991, -93.271)
     assert station is not None
-    assert station["station_id"] == 211167
+    assert station["station_id"] == 12345
 
 
 @respx.mock
@@ -95,10 +95,10 @@ async def test_resolve_station_too_far(client):
 
 @respx.mock
 async def test_get_observations(client):
-    respx.get(f"{_BASE}/observations/station/211167").mock(
+    respx.get(f"{_BASE}/observations/station/12345").mock(
         return_value=httpx.Response(200, json=MOCK_TEMPEST_OBSERVATION_RESPONSE)
     )
-    obs = await client.get_observations(211167)
+    obs = await client.get_observations(12345)
     assert obs is not None
     assert obs["air_temperature"] == 18.5
     assert obs["solar_radiation"] == 450
@@ -107,10 +107,10 @@ async def test_get_observations(client):
 
 @respx.mock
 async def test_get_observations_empty(client):
-    respx.get(f"{_BASE}/observations/station/211167").mock(
+    respx.get(f"{_BASE}/observations/station/12345").mock(
         return_value=httpx.Response(200, json=MOCK_TEMPEST_OBSERVATION_EMPTY)
     )
-    obs = await client.get_observations(211167)
+    obs = await client.get_observations(12345)
     assert obs is None
 
 
@@ -119,7 +119,7 @@ async def test_get_forecast_unit_mapping_us(client):
     route = respx.get(f"{_BASE}/better_forecast").mock(
         return_value=httpx.Response(200, json=MOCK_TEMPEST_FORECAST_RESPONSE)
     )
-    await client.get_forecast(211167, _US_PREFS)
+    await client.get_forecast(12345, _US_PREFS)
     request = route.calls[0].request
     assert b"units_temp=f" in request.url.query
     assert b"units_wind=mph" in request.url.query
@@ -133,7 +133,7 @@ async def test_get_forecast_unit_mapping_si(client):
     route = respx.get(f"{_BASE}/better_forecast").mock(
         return_value=httpx.Response(200, json=MOCK_TEMPEST_FORECAST_RESPONSE)
     )
-    await client.get_forecast(211167, _SI_PREFS)
+    await client.get_forecast(12345, _SI_PREFS)
     request = route.calls[0].request
     assert b"units_temp=c" in request.url.query
     assert b"units_wind=kph" in request.url.query

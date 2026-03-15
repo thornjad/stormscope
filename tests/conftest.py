@@ -464,7 +464,7 @@ MOCK_RADAR_RESPONSE = {
 
 # Tempest station near Minneapolis test coords (within 5 miles)
 TEMPEST_STATION_NEARBY = {
-    "station_id": 211167,
+    "station_id": 12345,
     "name": "Holz Lake",
     "public_name": "Holz Lake Public",
     "latitude": 44.990,
@@ -490,7 +490,7 @@ MOCK_TEMPEST_STATIONS_FAR_ONLY = {
 }
 
 MOCK_TEMPEST_OBSERVATION_RESPONSE = {
-    "station_id": 211167,
+    "station_id": 12345,
     "obs": [
         {
             "timestamp": 1741132800,  # 2026-03-04T20:00:00Z
@@ -520,7 +520,7 @@ MOCK_TEMPEST_OBSERVATION_RESPONSE = {
 }
 
 MOCK_TEMPEST_OBSERVATION_EMPTY = {
-    "station_id": 211167,
+    "station_id": 12345,
     "obs": [],
     "station_units": {},
 }
