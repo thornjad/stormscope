@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.0
+
+- add WeatherFlow Tempest personal weather station integration with hyper-local sensor enrichment
+- add `sensor_divergence` warning when Tempest and NWS temperatures differ significantly
+- add out-of-range warning when configured Tempest station exceeds 5-mile proximity threshold
+- always prefer Tempest values when station is within range
+- add `USE_TEMPEST_STATION_GEOLOCATION` option to use Tempest station location as primary
+- improve caching behavior for non-Tempest locations
+- fix null GeoJSON geometry crash in `get_surface_analysis`
+- fix `normalize_obs` to always read observation data as SI before converting
+- add coverage reporting via GitHub Actions
+- raise test coverage threshold to 85%
+
+## 1.2.0
+
+- add `get_surface_analysis` tool for WPC frontal analysis, surface lows/highs, and warm/cold sector detection
+- add units parameter to all MCP tool registrations
+- add `UnitPrefs` dataclass and `parse_units` helper
+- enrich forecasts with unit-aware fields
+- handle MultiLineString geometry from WPC MapServer
+
 ## 1.1.0
 
 - add `get_upper_air` tool for 500mb analysis (heights, temperature, wind, vorticity) via Open-Meteo
