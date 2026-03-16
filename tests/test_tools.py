@@ -1401,6 +1401,87 @@ class TestTempestIntegration:
 
         assert "_tempest_hourly" not in result
 
+    def test_merge_forecast_hourly_wind_gust(self):
+        """hourly Tempest wind_gust surfaces as tempest_wind_gust on matching period."""
+        from stormscope.tools import _merge_tempest_forecast
+        from datetime import datetime, timezone
+
+        hourly_epoch = MOCK_TEMPEST_FORECAST_RESPONSE["forecast"]["hourly"][0]["time"]
+        start_str = datetime.fromtimestamp(hourly_epoch, tz=timezone.utc).isoformat()
+        nws_result = {
+            "periods": [{"start_time": start_str, "name": "This Hour"}],
+            "location": "Minneapolis, MN",
+        }
+        result = _merge_tempest_forecast(nws_result, MOCK_TEMPEST_FORECAST_RESPONSE, US_PREFS)
+        period = result["periods"][0]
+        assert "tempest_wind_gust" in period
+        assert "15" in period["tempest_wind_gust"]
+        # first hourly entry has precip_type: "none" — must not appear in output
+        assert "tempest_precip_type" not in period
+
+    def test_merge_forecast_hourly_conditions_override(self):
+        """hourly conditions overrides daily tempest_conditions when both match the same period."""
+        from stormscope.tools import _merge_tempest_forecast
+        from datetime import datetime, timezone
+
+        # second hourly entry (time: 1741050000) falls on the same date as the first daily
+        # entry, so the daily block sets tempest_conditions = "Partly Cloudy" first;
+        # the hourly block then overwrites it with "Snow Likely"
+        hourly_epoch = MOCK_TEMPEST_FORECAST_RESPONSE["forecast"]["hourly"][1]["time"]
+        start_str = datetime.fromtimestamp(hourly_epoch, tz=timezone.utc).isoformat()
+        nws_result = {
+            "periods": [{"start_time": start_str, "name": "This Hour"}],
+            "location": "Minneapolis, MN",
+        }
+        result = _merge_tempest_forecast(nws_result, MOCK_TEMPEST_FORECAST_RESPONSE, US_PREFS)
+        period = result["periods"][0]
+        assert period.get("tempest_conditions") == "Snow Likely"
+
+    def test_merge_forecast_hourly_precip_type(self):
+        """hourly Tempest precip_type surfaces on matching period."""
+        from stormscope.tools import _merge_tempest_forecast
+        from datetime import datetime, timezone
+
+        hourly_epoch = MOCK_TEMPEST_FORECAST_RESPONSE["forecast"]["hourly"][1]["time"]
+        start_str = datetime.fromtimestamp(hourly_epoch, tz=timezone.utc).isoformat()
+        nws_result = {
+            "periods": [{"start_time": start_str, "name": "This Hour"}],
+            "location": "Minneapolis, MN",
+        }
+        result = _merge_tempest_forecast(nws_result, MOCK_TEMPEST_FORECAST_RESPONSE, US_PREFS)
+        period = result["periods"][0]
+        assert period.get("tempest_precip_type") == "snow"
+
+    def test_merge_forecast_hourly_precip_type_none_suppressed(self):
+        """precip_type "none" from Tempest must not surface as tempest_precip_type."""
+        from stormscope.tools import _merge_tempest_forecast
+        from datetime import datetime, timezone
+
+        # first hourly entry has precip_type: "none"
+        hourly_epoch = MOCK_TEMPEST_FORECAST_RESPONSE["forecast"]["hourly"][0]["time"]
+        start_str = datetime.fromtimestamp(hourly_epoch, tz=timezone.utc).isoformat()
+        nws_result = {
+            "periods": [{"start_time": start_str, "name": "This Hour"}],
+            "location": "Minneapolis, MN",
+        }
+        result = _merge_tempest_forecast(nws_result, MOCK_TEMPEST_FORECAST_RESPONSE, US_PREFS)
+        period = result["periods"][0]
+        assert "tempest_precip_type" not in period
+
+    def test_merge_forecast_hourly_no_match(self):
+        """NWS periods at non-matching times get no hourly Tempest fields."""
+        from stormscope.tools import _merge_tempest_forecast
+
+        nws_result = {
+            "periods": [{"start_time": "2099-01-01T00:00:00+00:00", "name": "Far Future"}],
+            "location": "Minneapolis, MN",
+        }
+        result = _merge_tempest_forecast(nws_result, MOCK_TEMPEST_FORECAST_RESPONSE, US_PREFS)
+        period = result["periods"][0]
+        assert "tempest_wind_gust" not in period
+        assert "tempest_precip_type" not in period
+        assert "tempest_conditions" not in period
+
     def test_merge_forecast_precip_cm_conversion(self):
         """S4: daily precip from Tempest (mm) must be converted to cm when requested."""
         from stormscope.tools import _merge_tempest_forecast
