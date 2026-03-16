@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0
+
+- enrich hourly forecasts with Tempest hourly sensor data when station is in range
+- suppress `none` precip_type from hourly enrichment output
+
 ## 1.3.0
 
 - add WeatherFlow Tempest personal weather station integration with hyper-local sensor enrichment
