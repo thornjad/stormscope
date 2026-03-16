@@ -208,13 +208,14 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
     for period in result.get("periods", []):
         p = dict(period)
         start_str = p.get("start_time") or ""
-        dt = None
         date_key = None
         period_epoch_hr = None
         if start_str:
             try:
                 dt = datetime.fromisoformat(start_str)
                 date_key = dt.strftime("%Y-%m-%d")
+                # NWS always returns offset-aware ISO strings so .timestamp()
+                # is always UTC-correct; naive strings are not possible here
                 epoch = int(dt.timestamp())
                 period_epoch_hr = epoch - epoch % 3600
             except Exception:
@@ -262,10 +263,11 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
         if period_epoch_hr is not None and period_epoch_hr in tempest_hourly_by_epoch:
             th = tempest_hourly_by_epoch[period_epoch_hr]
             gust = th.get("wind_gust")
+            # guard so field is absent (not "Calm") when gust data is unavailable
             if gust is not None:
                 p["tempest_wind_gust"] = _fmt_gust(gust, prefs)
             precip_type = th.get("precip_type")
-            if precip_type:
+            if precip_type and precip_type != "none":
                 p["tempest_precip_type"] = precip_type
             conditions = th.get("conditions")
             if conditions:
