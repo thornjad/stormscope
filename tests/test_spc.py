@@ -93,13 +93,15 @@ async def test_outlook_cached(spc_client):
 
 @respx.mock
 async def test_fetch_failure_returns_error(spc_client):
-    """HTTP failure returns error dict."""
+    """HTTP failure returns error dict with debug info."""
     url = SPC_OUTLOOK_URL.format(day=1)
     respx.get(url).mock(return_value=httpx.Response(500))
 
     result = await spc_client.check_risk_for_point(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
 
     assert "error" in result
+    assert "debug" in result
+    assert "url" in result["debug"]
 
 
 @respx.mock
@@ -156,7 +158,7 @@ async def test_fetch_outlook_categorical_branch(spc_client):
 
 
 async def test_get_spc_outlook_exception(spc_client):
-    """Exception in fetch_outlook returns error dict."""
+    """Exception in fetch_outlook returns error dict with debug info."""
     from unittest.mock import AsyncMock
     spc_client.fetch_outlook = AsyncMock(side_effect=Exception("network error"))
 
@@ -166,6 +168,38 @@ async def test_get_spc_outlook_exception(spc_client):
 
     assert "error" in result
     assert "tornado" in result["error"]
+    assert "debug" in result
+    assert "url" in result["debug"]
+    assert "network error" in result["debug"]["exception"]
+
+
+@respx.mock
+async def test_probabilistic_404_returns_no_risk(spc_client):
+    """404 from SPC means no outlook issued — returns zero probability, not error."""
+    url = SPC_PROB_URL.format(day=2, hazard="torn")
+    respx.get(url).mock(return_value=httpx.Response(404))
+
+    result = await spc_client.get_spc_outlook(
+        MINNEAPOLIS_LAT, MINNEAPOLIS_LON, 2, "tornado",
+    )
+
+    assert "error" not in result
+    assert result["probability"] == 0
+    assert result["hazard"] == "tornado"
+    assert result["day"] == 2
+
+
+@respx.mock
+async def test_categorical_404_returns_no_risk(spc_client):
+    """404 for categorical outlook returns NONE risk, not error."""
+    url = SPC_OUTLOOK_URL.format(day=3)
+    respx.get(url).mock(return_value=httpx.Response(404))
+
+    result = await spc_client.check_risk_for_point(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, day=3)
+
+    assert "error" not in result
+    assert result["risk_level"] == "NONE"
+    assert result["day"] == 3
 
 
 @respx.mock
@@ -191,10 +225,11 @@ async def test_national_outlook_summary(spc_client):
 
 @respx.mock
 async def test_national_outlook_summary_error(spc_client):
-    """HTTP failure in national_outlook_summary returns error dict."""
+    """HTTP failure in national_outlook_summary returns error dict with debug info."""
     url = SPC_OUTLOOK_URL.format(day=1)
     respx.get(url).mock(return_value=httpx.Response(500))
 
     result = await spc_client.get_national_outlook_summary(1)
 
     assert "error" in result
+    assert "debug" in result

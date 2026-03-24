@@ -45,6 +45,11 @@ class SPCClient(BaseAPIClient):
     async def _fetch_geojson(self, url: str) -> dict:
         client = await self._get_client()
         resp = await client.get(url)
+        if resp.status_code == 404:
+            # SPC returns 404 when no outlook has been issued for this
+            # hazard/day combination — this is normal, not an error.
+            logger.debug("SPC returned 404 for %s (no outlook issued)", url)
+            return {"features": []}
         resp.raise_for_status()
         if not resp.content:
             return {"features": []}
@@ -75,7 +80,9 @@ class SPCClient(BaseAPIClient):
         try:
             outlook = await self.get_categorical_outlook(day)
         except Exception as exc:
-            return {"error": f"Failed to fetch SPC outlook: {exc}"}
+            url = SPC_OUTLOOK_URL.format(day=day)
+            logger.error("SPC categorical outlook fetch failed: %s (url=%s)", exc, url)
+            return {"error": f"SPC categorical outlook unavailable for day {day}", "debug": {"url": url, "exception": str(exc)}}
 
         return self._point_in_categorical(outlook, lat, lon, day)
 
@@ -86,7 +93,13 @@ class SPCClient(BaseAPIClient):
         try:
             data = await self.fetch_outlook(day, outlook_type)
         except Exception as exc:
-            return {"error": f"Failed to fetch SPC {outlook_type} outlook: {exc}"}
+            if outlook_type == "categorical":
+                url = SPC_OUTLOOK_URL.format(day=day)
+            else:
+                slug = _HAZARD_SLUGS.get(outlook_type, outlook_type)
+                url = SPC_PROB_URL.format(day=day, hazard=slug)
+            logger.error("SPC %s outlook fetch failed: %s (url=%s)", outlook_type, exc, url)
+            return {"error": f"SPC {outlook_type} outlook unavailable for day {day}", "debug": {"url": url, "exception": str(exc)}}
 
         if outlook_type == "categorical":
             return self._point_in_categorical(data, lat, lon, day)
@@ -170,7 +183,9 @@ class SPCClient(BaseAPIClient):
         try:
             outlook = await self.get_categorical_outlook(day)
         except Exception as exc:
-            return {"error": f"Failed to fetch SPC outlook: {exc}"}
+            url = SPC_OUTLOOK_URL.format(day=day)
+            logger.error("SPC national outlook fetch failed: %s (url=%s)", exc, url)
+            return {"error": f"SPC national outlook unavailable for day {day}", "debug": {"url": url, "exception": str(exc)}}
 
         areas = []
         for feature in outlook.get("features", []):
