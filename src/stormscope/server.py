@@ -388,11 +388,13 @@ async def get_upper_air(
 async def get_surface_analysis(
     latitude: float | None = None,
     longitude: float | None = None,
-    day: int = 1,
+    product: str = "analysis",
+    day: int = 0,
     detail: str = "standard",
+    scope: str = "local",
     units: str | None = None,
 ) -> dict:
-    """Get WPC surface analysis showing fronts, pressure centers, and warm/cold sector.
+    """Get surface analysis or forecast showing fronts, pressure centers, and warm/cold sector.
 
     Use when: "Where are the fronts?", "Am I in the warm sector?",
     "Surface analysis?", "Where's the nearest low?"
@@ -401,13 +403,29 @@ async def get_surface_analysis(
     pressure centers (highs/lows). For cold fronts, determines whether
     you're on the warm side (ahead) or cold side (behind).
 
-    day: 1=today, 2=tomorrow, 3=day after.
+    product="analysis" (default): WPC coded surface analysis (CODSUS) showing
+    current front positions and pressure centers, updated every 3 hours.
+    Includes pressure values on H/L centers. The day parameter is not used.
+    product="forecast": WPC national forecast chart. day: 1=today, 2=tomorrow,
+    3=day after.
+
     detail="standard": nearest ~5 fronts, ~4 pressure centers, location summary.
     detail="full": all features with nearest-point coordinates.
 
-    Limitations: no pressure values on H/L centers, warm/cold sector detection
-    is approximate (geometric heuristic), CONUS coverage, analysis charts
-    updated ~4x/day.
+    scope="local" (default): location summary only references fronts within
+    ~400km — distant fronts are listed but not described as influencing
+    local weather. Use for typical queries about local conditions.
+    scope="all": no distance threshold — location summary always reports
+    warm/cold sector relative to nearest cold front regardless of distance.
+    Use when asking about the broad synoptic pattern.
+
+    Note: this tool reports synoptic-scale features (major fronts, pressure
+    centers). Mesoscale boundaries such as outflow boundaries, sea breezes,
+    and moisture gradients are not included in the CODSUS or forecast chart
+    data sources.
+
+    Warm/cold sector detection is approximate (geometric heuristic). CONUS
+    coverage only.
 
     Omit lat/lon to use configured primary location.
 
@@ -415,8 +433,12 @@ async def get_surface_analysis(
     "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
     wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
     """
+    if product not in ("analysis", "forecast"):
+        return {"error": f"invalid product '{product}', must be 'analysis' or 'forecast'"}
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
+    if scope not in ("local", "all"):
+        return {"error": f"invalid scope '{scope}', must be 'local' or 'all'"}
     err = _validate_units(units)
     if err:
         return err
@@ -424,7 +446,9 @@ async def get_surface_analysis(
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
-    return await tools.get_surface_analysis(lat, lon, day, detail, units=units)
+    return await tools.get_surface_analysis(
+        lat, lon, product=product, day=day, detail=detail, units=units, scope=scope,
+    )
 
 
 def main():

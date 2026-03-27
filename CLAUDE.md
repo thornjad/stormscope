@@ -19,10 +19,12 @@ There is no separate build or lint step. The project uses `hatchling` as build b
 
 ## Architecture
 
-All code lives in `src/stormscope/`. The server exposes 9 async MCP tools defined in `server.py`, with implementations in `tools.py` that aggregate results from five data-source clients:
+All code lives in `src/stormscope/`. The server exposes 9 async MCP tools defined in `server.py`, with implementations in `tools.py` that aggregate results from seven data-source clients:
 
 - **`nws.py`** — NWS API client (conditions, forecasts, alerts, gridpoint data). Has per-endpoint TTL caching and retry logic.
 - **`spc.py`** — SPC outlook client. Parses GeoJSON for categorical and probabilistic severe weather risk (tornado/wind/hail), days 1-3.
+- **`codsus.py`** — WPC Coded Surface Frontal Positions (CODSUS/ASUS02) parser and client. Fetches the hand-analyzed surface bulletin from IEM every 3 hours, parses 7-digit encoded coordinates into structured front segments and pressure centers. Used by `get_surface_analysis` for current conditions.
+- **`wpc.py`** — WPC national forecast chart client. Parses GeoJSON for frontal positions and pressure centers from the prognostic chart, days 1-3. Used by `get_surface_analysis` with `product="forecast"`.
 - **`iem.py`** — Iowa Mesonet client for NEXRAD radar station metadata and imagery URLs.
 - **`openmeteo.py`** — Open-Meteo client for 500mb pressure-level data (heights, temperature, wind). Fetches a 5-point cross pattern for vorticity computation.
 - **`tempest.py`** — WeatherFlow Tempest personal weather station client. Resolves stations by ID, name, or proximity and enriches NWS conditions with hyper-local sensor readings (solar radiation, UV index, lightning, air density, wet bulb temperature). Falls back silently to NWS when unavailable.
