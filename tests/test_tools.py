@@ -973,6 +973,37 @@ class TestGetSurfaceAnalysis:
         assert result["nearest_fronts"][0]["type"] == "cold"
         assert result["nearest_pressure_centers"] == []
 
+    @patch("stormscope.tools._wpc")
+    async def test_forecast_scope_local_suppresses_distant_cold_front(self, mock_wpc):
+        # cold front ~800km south of Minneapolis
+        fronts = {
+            "type": "FeatureCollection",
+            "features": [{
+                "properties": {"feat": "Cold Front Valid"},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[-95.0, 37.0], [-94.0, 36.0], [-93.0, 35.0]],
+                },
+            }],
+        }
+        centers = {
+            "type": "FeatureCollection",
+            "features": [{
+                "properties": {"feat": "High Valid"},
+                "geometry": {"type": "Point", "coordinates": [-100.0, 46.0]},
+            }],
+        }
+        mock_wpc.get_surface_analysis = AsyncMock(return_value=(fronts, centers))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(
+            MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=1,
+        )
+
+        assert "location_summary" in result
+        assert "warm side" not in result["location_summary"]
+        assert "high" in result["location_summary"]
+
     @patch("stormscope.tools._codsus")
     async def test_analysis_default_product(self, mock_codsus):
         from stormscope.codsus import SurfaceAnalysis, Front, PressureCenter
@@ -1097,11 +1128,97 @@ class TestGetSurfaceAnalysis:
         assert "warning" in result
         assert "forecast" in result["warning"]
 
+    @patch("stormscope.tools._codsus")
+    async def test_scope_local_suppresses_distant_cold_front(self, mock_codsus):
+        from stormscope.codsus import SurfaceAnalysis, Front, PressureCenter
+        # cold front far away (~800km south)
+        mock_codsus.get_analysis = AsyncMock(return_value=SurfaceAnalysis(
+            valid_time="261500Z",
+            fronts=[
+                Front(type="cold", strength="standard", coords=[
+                    (37.0, -95.0), (36.0, -94.0), (35.0, -93.0),
+                ]),
+            ],
+            pressure_centers=[
+                PressureCenter(type="high", pressure_mb=1036, lat=46.0, lon=-100.0),
+            ],
+        ))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        # default scope is local — should not mention warm/cold sector for distant front
+        assert "location_summary" in result
+        assert "warm side" not in result["location_summary"]
+        assert "high" in result["location_summary"]
+
+    @patch("stormscope.tools._codsus")
+    async def test_scope_all_includes_distant_cold_front(self, mock_codsus):
+        from stormscope.codsus import SurfaceAnalysis, Front
+        mock_codsus.get_analysis = AsyncMock(return_value=SurfaceAnalysis(
+            valid_time="261500Z",
+            fronts=[
+                Front(type="cold", strength="standard", coords=[
+                    (37.0, -95.0), (36.0, -94.0), (35.0, -93.0),
+                ]),
+            ],
+            pressure_centers=[],
+        ))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, scope="all")
+
+        assert "location_summary" in result
+        assert "warm side" in result["location_summary"] or "cold side" in result["location_summary"]
+
+    @patch("stormscope.tools._codsus")
+    async def test_summary_falls_back_to_pressure_center(self, mock_codsus):
+        from stormscope.codsus import SurfaceAnalysis, Front, PressureCenter
+        # only a trough (no cold front) + pressure center
+        mock_codsus.get_analysis = AsyncMock(return_value=SurfaceAnalysis(
+            valid_time="261500Z",
+            fronts=[
+                Front(type="trough", strength="standard", coords=[
+                    (42.0, -85.0), (44.0, -87.0),
+                ]),
+            ],
+            pressure_centers=[
+                PressureCenter(type="high", pressure_mb=1038, lat=46.0, lon=-100.0),
+            ],
+        ))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "location_summary" in result
+        assert "1038 mb" in result["location_summary"]
+        assert "high" in result["location_summary"]
+
+    @patch("stormscope.tools._codsus")
+    async def test_no_summary_when_no_features(self, mock_codsus):
+        from stormscope.codsus import SurfaceAnalysis
+        mock_codsus.get_analysis = AsyncMock(return_value=SurfaceAnalysis(
+            valid_time="261500Z", fronts=[], pressure_centers=[],
+        ))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "location_summary" not in result
+
     async def test_invalid_product(self):
         from stormscope.tools import get_surface_analysis
         result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="bogus")
         assert "error" in result
         assert "invalid product" in result["error"]
+
+    async def test_invalid_scope(self):
+        from stormscope.server import get_surface_analysis
+        result = await get_surface_analysis(
+            latitude=MINNEAPOLIS_LAT, longitude=MINNEAPOLIS_LON, scope="nearby",
+        )
+        assert "error" in result
+        assert "invalid scope" in result["error"]
 
 
 class TestMultiLineStringSegments:

@@ -1262,11 +1262,42 @@ def _nearest_point_on_multiline(
     return best_lat, best_lon, best_dist, best_segment
 
 
+_LOCAL_THRESHOLD_KM = 400
+
+
+def _build_location_summary(
+    fronts: list[dict], centers: list[dict], threshold_km: float | None,
+) -> str | None:
+    """build a human-readable location summary from sorted fronts and centers.
+
+    When threshold_km is set, suppress warm/cold sector language for cold
+    fronts beyond that distance — being "warm side" of a front 600+ km
+    away is technically true but meteorologically meaningless.
+    """
+    # sorted by distance, so first cold front found is the nearest
+    for fr in fronts:
+        if fr["type"] == "cold" and fr.get("position"):
+            if threshold_km is not None and fr["distance_km"] > threshold_km:
+                break
+            return f"{fr['position']} — cold front {fr['distance']} to the {fr['bearing']}"
+
+    # no nearby cold front — describe nearest pressure center instead
+    if centers:
+        c = centers[0]
+        label = f"nearest {c['type']}"
+        if "pressure_mb" in c:
+            label += f" ({c['pressure_mb']} mb)"
+        return f"{label} {c['distance']} to the {c['bearing']}"
+    return None
+
+
 async def _surface_analysis_codsus(
     latitude: float, longitude: float, detail: str, prefs: UnitPrefs,
+    scope: str,
 ) -> dict:
     """surface analysis from CODSUS bulletin (current conditions)."""
     analysis = await _codsus.get_analysis()
+    threshold_km = _LOCAL_THRESHOLD_KM if scope == "local" else None
 
     parsed_fronts = []
     for front in analysis.fronts:
@@ -1312,11 +1343,7 @@ async def _surface_analysis_codsus(
     parsed_fronts.sort(key=lambda f: f["distance_km"])
     parsed_centers.sort(key=lambda c: c["distance_km"])
 
-    location_summary = None
-    for fr in parsed_fronts:
-        if fr["type"] == "cold" and fr.get("position"):
-            location_summary = f"{fr['position']} — cold front {fr['distance']} to the {fr['bearing']}"
-            break
+    location_summary = _build_location_summary(parsed_fronts, parsed_centers, threshold_km)
 
     result: dict = {"source": "WPC surface analysis (CODSUS)"}
     if analysis.valid_time:
@@ -1334,6 +1361,7 @@ async def _surface_analysis_codsus(
 
 async def _surface_analysis_forecast(
     latitude: float, longitude: float, day: int, detail: str, prefs: UnitPrefs,
+    scope: str,
 ) -> dict:
     """surface analysis from WPC forecast chart (days 1-3)."""
     fronts_data, centers_data = await _wpc.get_surface_analysis(day)
@@ -1402,11 +1430,8 @@ async def _surface_analysis_forecast(
     parsed_fronts.sort(key=lambda f: f["distance_km"])
     parsed_centers.sort(key=lambda c: c["distance_km"])
 
-    location_summary = None
-    for fr in parsed_fronts:
-        if fr["type"] == "cold" and fr.get("position"):
-            location_summary = f"{fr['position']} — cold front {fr['distance']} to the {fr['bearing']}"
-            break
+    threshold_km = _LOCAL_THRESHOLD_KM if scope == "local" else None
+    location_summary = _build_location_summary(parsed_fronts, parsed_centers, threshold_km)
 
     result: dict = {
         "source": "WPC forecast chart",
@@ -1426,6 +1451,7 @@ async def _surface_analysis_forecast(
 async def get_surface_analysis(
     latitude: float, longitude: float, product: str = "analysis",
     day: int = 0, detail: str = "standard", units: str | None = None,
+    scope: str = "local",
 ) -> dict:
     """get surface analysis or forecast chart with fronts and pressure centers."""
     prefs = parse_units(units, config.units)
@@ -1436,7 +1462,7 @@ async def get_surface_analysis(
                     "error": "surface analysis reflects current conditions only. "
                     "use product='forecast' with day=1/2/3 for future outlooks.",
                 }
-            result = await _surface_analysis_codsus(latitude, longitude, detail, prefs)
+            result = await _surface_analysis_codsus(latitude, longitude, detail, prefs, scope)
             if day == 1:
                 result["warning"] = (
                     "analysis always reflects current conditions; day parameter is ignored. "
@@ -1446,7 +1472,7 @@ async def get_surface_analysis(
         elif product == "forecast":
             if day < 1 or day > 3:
                 return {"error": f"invalid day {day}, must be 1-3"}
-            return await _surface_analysis_forecast(latitude, longitude, day, detail, prefs)
+            return await _surface_analysis_forecast(latitude, longitude, day, detail, prefs, scope)
         else:
             return {"error": f"invalid product '{product}', must be 'analysis' or 'forecast'"}
     except Exception as exc:

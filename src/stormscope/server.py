@@ -391,6 +391,7 @@ async def get_surface_analysis(
     product: str = "analysis",
     day: int = 0,
     detail: str = "standard",
+    scope: str = "local",
     units: str | None = None,
 ) -> dict:
     """Get surface analysis or forecast showing fronts, pressure centers, and warm/cold sector.
@@ -411,6 +412,18 @@ async def get_surface_analysis(
     detail="standard": nearest ~5 fronts, ~4 pressure centers, location summary.
     detail="full": all features with nearest-point coordinates.
 
+    scope="local" (default): location summary only references fronts within
+    ~400km — distant fronts are listed but not described as influencing
+    local weather. Use for typical queries about local conditions.
+    scope="all": no distance threshold — location summary always reports
+    warm/cold sector relative to nearest cold front regardless of distance.
+    Use when asking about the broad synoptic pattern.
+
+    Note: this tool reports synoptic-scale features (major fronts, pressure
+    centers). Mesoscale boundaries such as outflow boundaries, sea breezes,
+    and moisture gradients are not included in the CODSUS or forecast chart
+    data sources.
+
     Warm/cold sector detection is approximate (geometric heuristic). CONUS
     coverage only.
 
@@ -424,6 +437,8 @@ async def get_surface_analysis(
         return {"error": f"invalid product '{product}', must be 'analysis' or 'forecast'"}
     if detail not in _VALID_DETAILS:
         return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
+    if scope not in ("local", "all"):
+        return {"error": f"invalid scope '{scope}', must be 'local' or 'all'"}
     err = _validate_units(units)
     if err:
         return err
@@ -431,7 +446,9 @@ async def get_surface_analysis(
         lat, lon = await _resolve_location(latitude, longitude)
     except ValueError as exc:
         return {"error": str(exc)}
-    return await tools.get_surface_analysis(lat, lon, product=product, day=day, detail=detail, units=units)
+    return await tools.get_surface_analysis(
+        lat, lon, product=product, day=day, detail=detail, units=units, scope=scope,
+    )
 
 
 def main():
