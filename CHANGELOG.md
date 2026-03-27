@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.2
+
+- fix surface analysis using forecast bulletin instead of current conditions; parse CODSUS coded bulletin for actual current analysis
+- fix single-coord front IndexError in surface analysis
+- fix IEM mislabeling and continuation line parsing
+- preserve forecast analysis as separate `scope` parameter
+
+## 1.4.1
+
+- handle SPC 404 as missing outlook instead of error
+
 ## 1.4.0
 
 - enrich hourly forecasts with Tempest hourly sensor data when station is in range
