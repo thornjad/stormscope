@@ -812,35 +812,36 @@ class TestBearing:
 
 class TestGetSurfaceAnalysis:
     @patch("stormscope.tools._wpc")
-    async def test_standard_detail(self, mock_wpc):
+    async def test_forecast_standard_detail(self, mock_wpc):
         mock_wpc.get_surface_analysis = AsyncMock(
             return_value=(MOCK_WPC_FRONTS, MOCK_WPC_PRESSURE_CENTERS),
         )
 
         from stormscope.tools import get_surface_analysis
-        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=1)
 
         assert "error" not in result
         assert result["day"] == 1
+        assert result["source"] == "WPC forecast chart"
         assert len(result["nearest_fronts"]) == 2
         assert len(result["nearest_pressure_centers"]) == 2
         assert result["nearest_fronts"][0]["type"] in ("cold", "warm")
         assert "distance" in result["nearest_fronts"][0]
         assert "bearing" in result["nearest_fronts"][0]
-        # should not have full-detail fields
         assert "nearest_point" not in result["nearest_fronts"][0]
 
     @patch("stormscope.tools._wpc")
-    async def test_full_detail(self, mock_wpc):
+    async def test_forecast_full_detail(self, mock_wpc):
         mock_wpc.get_surface_analysis = AsyncMock(
             return_value=(MOCK_WPC_FRONTS, MOCK_WPC_PRESSURE_CENTERS),
         )
 
         from stormscope.tools import get_surface_analysis
-        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, detail="full")
+        result = await get_surface_analysis(
+            MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=1, detail="full",
+        )
 
         assert "error" not in result
-        # full detail returns all fronts unsliced with extra fields
         assert len(result["nearest_fronts"]) == 2
         assert len(result["nearest_pressure_centers"]) == 2
         front = result["nearest_fronts"][0]
@@ -850,15 +851,13 @@ class TestGetSurfaceAnalysis:
         assert "coordinates" in center
 
     @patch("stormscope.tools._wpc")
-    async def test_warm_sector_detection(self, mock_wpc):
+    async def test_forecast_warm_sector_detection(self, mock_wpc):
         mock_wpc.get_surface_analysis = AsyncMock(
             return_value=(MOCK_WPC_FRONTS, MOCK_WPC_PRESSURE_CENTERS),
         )
 
         from stormscope.tools import get_surface_analysis
-        # Minneapolis (44.98, -93.27) is south/east of the cold front line
-        # which runs NW-SE. Should be on the warm side.
-        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=1)
 
         cold_fronts = [f for f in result["nearest_fronts"] if f["type"] == "cold"]
         assert len(cold_fronts) > 0
@@ -867,26 +866,25 @@ class TestGetSurfaceAnalysis:
         assert "warm side" in result["location_summary"]
 
     @patch("stormscope.tools._wpc")
-    async def test_cold_sector_detection(self, mock_wpc):
+    async def test_forecast_cold_sector_detection(self, mock_wpc):
         mock_wpc.get_surface_analysis = AsyncMock(
             return_value=(MOCK_WPC_FRONTS, MOCK_WPC_PRESSURE_CENTERS),
         )
 
         from stormscope.tools import get_surface_analysis
-        # point north of the cold front should be on cold side
-        result = await get_surface_analysis(48.0, -95.0)
+        result = await get_surface_analysis(48.0, -95.0, product="forecast", day=1)
 
         cold_fronts = [f for f in result["nearest_fronts"] if f["type"] == "cold"]
         assert len(cold_fronts) > 0
         assert cold_fronts[0].get("position") == "cold side (behind front)"
 
     @patch("stormscope.tools._wpc")
-    async def test_empty_features(self, mock_wpc):
+    async def test_forecast_empty_features(self, mock_wpc):
         empty = {"type": "FeatureCollection", "features": []}
         mock_wpc.get_surface_analysis = AsyncMock(return_value=(empty, empty))
 
         from stormscope.tools import get_surface_analysis
-        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=1)
 
         assert "error" not in result
         assert result["nearest_fronts"] == []
@@ -894,27 +892,27 @@ class TestGetSurfaceAnalysis:
         assert "location_summary" not in result
 
     @patch("stormscope.tools._wpc")
-    async def test_error_handling(self, mock_wpc):
+    async def test_forecast_error_handling(self, mock_wpc):
         mock_wpc.get_surface_analysis = AsyncMock(side_effect=Exception("API down"))
 
         from stormscope.tools import get_surface_analysis
-        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=1)
 
         assert "error" in result
 
-    async def test_invalid_day(self):
+    async def test_forecast_invalid_day(self):
         from stormscope.tools import get_surface_analysis
-        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, day=0)
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=0)
         assert "error" in result
         assert "invalid day" in result["error"]
 
-    async def test_invalid_day_too_high(self):
+    async def test_forecast_invalid_day_too_high(self):
         from stormscope.tools import get_surface_analysis
-        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, day=4)
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=4)
         assert "error" in result
 
     @patch("stormscope.tools._wpc")
-    async def test_unknown_front_type_skipped(self, mock_wpc):
+    async def test_forecast_unknown_front_type_skipped(self, mock_wpc):
         fronts_with_unknown = {
             "type": "FeatureCollection",
             "features": [
@@ -934,13 +932,13 @@ class TestGetSurfaceAnalysis:
         )
 
         from stormscope.tools import get_surface_analysis
-        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=1)
 
         assert len(result["nearest_fronts"]) == 1
         assert result["nearest_fronts"][0]["type"] == "cold"
 
     @patch("stormscope.tools._wpc")
-    async def test_null_geometry_does_not_crash(self, mock_wpc):
+    async def test_forecast_null_geometry_does_not_crash(self, mock_wpc):
         """GeoJSON features with geometry: null must be skipped without raising."""
         fronts_with_null_geom = {
             "type": "FeatureCollection",
@@ -968,14 +966,182 @@ class TestGetSurfaceAnalysis:
         )
 
         from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=1)
+
+        assert "error" not in result
+        assert len(result["nearest_fronts"]) == 1
+        assert result["nearest_fronts"][0]["type"] == "cold"
+        assert result["nearest_pressure_centers"] == []
+
+    @patch("stormscope.tools._codsus")
+    async def test_analysis_default_product(self, mock_codsus):
+        from stormscope.codsus import SurfaceAnalysis, Front, PressureCenter
+        mock_codsus.get_analysis = AsyncMock(return_value=SurfaceAnalysis(
+            valid_time="261500Z",
+            fronts=[
+                Front(type="cold", strength="standard", coords=[
+                    (47.0, -95.0), (46.0, -94.0), (45.0, -93.0), (44.0, -92.0),
+                ]),
+            ],
+            pressure_centers=[
+                PressureCenter(type="low", pressure_mb=1007, lat=45.0, lon=-91.5),
+            ],
+        ))
+
+        from stormscope.tools import get_surface_analysis
         result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
 
         assert "error" not in result
-        # null-geometry feature skipped; valid cold front still present
+        assert "warning" not in result
+        assert result["source"] == "WPC surface analysis (CODSUS)"
+        assert result["valid_time"] == "261500Z"
         assert len(result["nearest_fronts"]) == 1
         assert result["nearest_fronts"][0]["type"] == "cold"
-        # null-geometry center skipped
-        assert result["nearest_pressure_centers"] == []
+        assert len(result["nearest_pressure_centers"]) == 1
+        assert result["nearest_pressure_centers"][0]["pressure_mb"] == 1007
+
+    @patch("stormscope.tools._codsus")
+    async def test_analysis_full_detail(self, mock_codsus):
+        from stormscope.codsus import SurfaceAnalysis, Front, PressureCenter
+        mock_codsus.get_analysis = AsyncMock(return_value=SurfaceAnalysis(
+            valid_time="261500Z",
+            fronts=[
+                Front(type="cold", strength="weak", coords=[
+                    (47.0, -95.0), (46.0, -94.0), (45.0, -93.0),
+                ]),
+            ],
+            pressure_centers=[
+                PressureCenter(type="low", pressure_mb=1007, lat=45.0, lon=-91.5),
+            ],
+        ))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, detail="full")
+
+        front = result["nearest_fronts"][0]
+        assert "nearest_point" in front
+        assert "latitude" in front["nearest_point"]
+        assert front["strength"] == "weak"
+        center = result["nearest_pressure_centers"][0]
+        assert "coordinates" in center
+
+    @patch("stormscope.tools._codsus")
+    async def test_analysis_warm_sector_detection(self, mock_codsus):
+        from stormscope.codsus import SurfaceAnalysis, Front
+        # cold front running NW-SE: Minneapolis is south/east, should be warm side
+        mock_codsus.get_analysis = AsyncMock(return_value=SurfaceAnalysis(
+            valid_time="261500Z",
+            fronts=[
+                Front(type="cold", strength="standard", coords=[
+                    (47.0, -95.0), (46.0, -94.0), (45.0, -93.0), (44.0, -92.0),
+                ]),
+            ],
+            pressure_centers=[],
+        ))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        cold_fronts = [f for f in result["nearest_fronts"] if f["type"] == "cold"]
+        assert len(cold_fronts) > 0
+        assert cold_fronts[0].get("position") == "warm side (ahead of front)"
+        assert "location_summary" in result
+        assert "warm side" in result["location_summary"]
+
+    @patch("stormscope.tools._codsus")
+    async def test_analysis_cold_sector_detection(self, mock_codsus):
+        from stormscope.codsus import SurfaceAnalysis, Front
+        mock_codsus.get_analysis = AsyncMock(return_value=SurfaceAnalysis(
+            valid_time="261500Z",
+            fronts=[
+                Front(type="cold", strength="standard", coords=[
+                    (47.0, -95.0), (46.0, -94.0), (45.0, -93.0), (44.0, -92.0),
+                ]),
+            ],
+            pressure_centers=[],
+        ))
+
+        from stormscope.tools import get_surface_analysis
+        # point north of the cold front should be on cold side
+        result = await get_surface_analysis(48.0, -95.0)
+
+        cold_fronts = [f for f in result["nearest_fronts"] if f["type"] == "cold"]
+        assert len(cold_fronts) > 0
+        assert cold_fronts[0].get("position") == "cold side (behind front)"
+
+    @patch("stormscope.tools._codsus")
+    async def test_analysis_error_handling(self, mock_codsus):
+        mock_codsus.get_analysis = AsyncMock(side_effect=Exception("API down"))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" in result
+
+    async def test_analysis_day_greater_than_1_errors(self):
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="analysis", day=2)
+        assert "error" in result
+        assert "forecast" in result["error"]
+
+    @patch("stormscope.tools._codsus")
+    async def test_analysis_day_1_warns(self, mock_codsus):
+        from stormscope.codsus import SurfaceAnalysis
+        mock_codsus.get_analysis = AsyncMock(return_value=SurfaceAnalysis(
+            valid_time="261500Z", fronts=[], pressure_centers=[],
+        ))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="analysis", day=1)
+
+        assert "warning" in result
+        assert "forecast" in result["warning"]
+
+    async def test_invalid_product(self):
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="bogus")
+        assert "error" in result
+        assert "invalid product" in result["error"]
+
+
+class TestMultiLineStringSegments:
+    """verify that disconnected MultiLineString segments are processed independently,
+    not flattened into phantom cross-continent connections."""
+
+    @patch("stormscope.tools._wpc")
+    async def test_disconnected_segments_no_phantom(self, mock_wpc):
+        # two cold front segments far apart: one in Missouri, one in Maine.
+        # Minneapolis is ~350 mi from Missouri and ~1000 mi from Maine.
+        # if flattened, a phantom segment connects Missouri to Maine and passes
+        # near Minneapolis, producing a spurious ~30 mi result.
+        fronts_disconnected = {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "properties": {"feat": "Cold Front Valid"},
+                "geometry": {
+                    "type": "MultiLineString",
+                    "coordinates": [
+                        # segment 1: Missouri
+                        [[-94.0, 39.0], [-92.0, 39.5], [-90.0, 39.7]],
+                        # segment 2: Maine (far from Minneapolis)
+                        [[-70.0, 48.0], [-69.0, 47.5], [-68.0, 47.0]],
+                    ],
+                },
+            }],
+        }
+        empty_centers = {"type": "FeatureCollection", "features": []}
+        mock_wpc.get_surface_analysis = AsyncMock(
+            return_value=(fronts_disconnected, empty_centers),
+        )
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, product="forecast", day=1)
+
+        front = result["nearest_fronts"][0]
+        # nearest real segment is Missouri at ~550-620 km (340-385 mi),
+        # not a phantom segment at ~50 km
+        assert front["distance_km"] > 500
 
 
 class TestNearestPointOnLine:
