@@ -353,12 +353,12 @@ async def get_upper_air(
     longitude: float | None = None,
     units: str | None = None,
 ) -> dict:
-    """Get 500mb upper-air analysis with heights, temperature, wind, and vorticity.
+    """Get 500mb upper-air forecast with heights, temperature, wind, and vorticity.
 
     Use when: "What does 500mb look like?", "Where are the troughs?",
     "Upper-air pattern?", "Jet stream?", "Vorticity?"
 
-    500mb (~18,000 ft) is the key level for synoptic-scale analysis:
+    500mb (~18,000 ft) is the key level for synoptic-scale pattern recognition:
     - Heights reveal troughs (low heights, stormier) and ridges (high heights, calmer)
     - Vorticity maxima indicate regions favorable for storm development
     - Wind shows the jet stream position and strength

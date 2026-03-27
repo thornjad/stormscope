@@ -1084,7 +1084,7 @@ def _compute_trend(values: list[float]) -> str:
 async def get_upper_air(
     latitude: float, longitude: float, units: str | None = None,
 ) -> dict:
-    """get 500mb upper-air analysis with derived vorticity."""
+    """get 500mb upper-air forecast with derived vorticity."""
     prefs = parse_units(units, config.units)
     try:
         data = await _openmeteo.get_upper_air(latitude, longitude)
