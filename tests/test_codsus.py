@@ -37,6 +37,20 @@ TROF 4480917 4480927 4530938
 COLD WK 3500900 3450910 3400920
 """
 
+SAMPLE_ASUS01_TEXT = """\
+419
+ASUS01 KWBC 261500
+CODSUS
+
+CODED SURFACE FRONTAL POSITIONS
+NWS WEATHER PREDICTION CENTER COLLEGE PARK MD
+
+VALID 261500Z
+HIGHS 1015 35112 1014 37108
+LOWS 1005 3995 1000 36101
+COLD 3995 3896 3897 37100
+"""
+
 SAMPLE_LIST_RESPONSE = {
     "data": [
         {"product_id": "202603261500-KWBC-ASUS02-CODSUS"},
@@ -147,6 +161,25 @@ class TestParseBulletin:
         # 2 cold (standard + weak), 1 warm, 1 stationary, 1 occluded, 1 trough
         assert len(result.fronts) == 6
 
+    def test_continuation_lines(self):
+        text = """\
+VALID 271800Z
+HIGHS 1020 2880861 1042 5051086 1041 4851059 1036 6491386 1024 6420449 1014
+6860627 1031 4221356 1033 4631272
+LOWS 1006 3451016 1009 3870857
+STNRY 3451015 3431034 3511048 3671057 3891062 3851078 3701096 3671134 3661165
+3751193 3951215
+"""
+        result = parse_bulletin(text)
+        highs = [c for c in result.pressure_centers if c.type == "high"]
+        assert len(highs) == 8
+        assert highs[-1].pressure_mb == 1033
+        lows = [c for c in result.pressure_centers if c.type == "low"]
+        assert len(lows) == 2
+        stnry = [f for f in result.fronts if f.type == "stationary"]
+        assert len(stnry) == 1
+        assert len(stnry[0].coords) == 11
+
 
 @pytest.fixture
 def codsus_client():
@@ -181,12 +214,17 @@ async def test_picks_asus02_over_asus01(codsus_client):
     respx.get(f"{IEM_BASE}/api/1/nws/afos/list.json").mock(
         return_value=httpx.Response(200, json=list_data),
     )
+    # ASUS01 text has ASUS01 header — should be skipped
+    respx.get(f"{IEM_BASE}/api/1/nwstext/202603261500-KWBC-ASUS01-CODSUS").mock(
+        return_value=httpx.Response(200, text=SAMPLE_ASUS01_TEXT),
+    )
     route = respx.get(f"{IEM_BASE}/api/1/nwstext/202603261500-KWBC-ASUS02-CODSUS").mock(
         return_value=httpx.Response(200, text=SAMPLE_BULLETIN),
     )
 
-    await codsus_client.get_analysis()
+    result = await codsus_client.get_analysis()
     assert route.call_count == 1
+    assert result.valid_time == "261500Z"
 
 
 @respx.mock
@@ -195,9 +233,39 @@ async def test_no_asus02_raises(codsus_client):
     respx.get(f"{IEM_BASE}/api/1/nws/afos/list.json").mock(
         return_value=httpx.Response(200, json=list_data),
     )
+    # bulletin text has ASUS01 header — no real ASUS02 available
+    respx.get(f"{IEM_BASE}/api/1/nwstext/202603261500-KWBC-ASUS01-CODSUS").mock(
+        return_value=httpx.Response(200, text=SAMPLE_ASUS01_TEXT),
+    )
 
     with pytest.raises(ValueError, match="no ASUS02 bulletin found"):
         await codsus_client._fetch_latest()
+
+
+@respx.mock
+async def test_mislabeled_asus02_skipped(codsus_client):
+    """IEM sometimes labels ASUS01 content with an ASUS02 product_id."""
+    list_data = {
+        "data": [
+            {"product_id": "202603261500-KWBC-ASUS02-CODSUS"},
+            {"product_id": "202603261200-KWBC-ASUS01-CODSUS"},
+        ],
+    }
+    respx.get(f"{IEM_BASE}/api/1/nws/afos/list.json").mock(
+        return_value=httpx.Response(200, json=list_data),
+    )
+    # first entry labeled ASUS02 but content is actually ASUS01
+    respx.get(f"{IEM_BASE}/api/1/nwstext/202603261500-KWBC-ASUS02-CODSUS").mock(
+        return_value=httpx.Response(200, text=SAMPLE_ASUS01_TEXT),
+    )
+    # second entry is actually ASUS02
+    respx.get(f"{IEM_BASE}/api/1/nwstext/202603261200-KWBC-ASUS01-CODSUS").mock(
+        return_value=httpx.Response(200, text=SAMPLE_BULLETIN),
+    )
+
+    result = await codsus_client.get_analysis()
+    assert result.valid_time == "261500Z"
+    assert len(result.fronts) == 6
 
 
 @respx.mock

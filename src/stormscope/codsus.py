@@ -97,17 +97,34 @@ def _parse_front_line(line: str, front_type: str) -> Front | None:
     return Front(type=front_type, strength=strength, coords=coords)
 
 
+_ALL_KEYWORDS = {"HIGHS", "LOWS", "VALID"} | set(_FRONT_KEYWORDS)
+
+
+def _join_continuation_lines(text: str) -> list[str]:
+    """join continuation lines (lines starting with a digit) to the previous line.
+
+    ASUS02 bulletins wrap long lines — continuation lines start with a
+    digit and don't begin with any known keyword.
+    """
+    lines: list[str] = []
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        if lines and stripped[0].isdigit() and not any(stripped.startswith(k) for k in _ALL_KEYWORDS):
+            lines[-1] += " " + stripped
+        else:
+            lines.append(stripped)
+    return lines
+
+
 def parse_bulletin(text: str) -> SurfaceAnalysis:
     """parse an ASUS02 coded surface bulletin into structured data."""
     valid_time = _parse_valid_time(text)
     fronts: list[Front] = []
     pressure_centers: list[PressureCenter] = []
 
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-
+    for line in _join_continuation_lines(text):
         if line.startswith("HIGHS"):
             pressure_centers.extend(_parse_pressure_line(line[5:], "high"))
             continue
@@ -124,6 +141,21 @@ def parse_bulletin(text: str) -> SurfaceAnalysis:
                 break
 
     return SurfaceAnalysis(valid_time=valid_time, fronts=fronts, pressure_centers=pressure_centers)
+
+
+def _is_asus02(text: str) -> bool:
+    """check if bulletin text is actually ASUS02 format (7-digit coords).
+
+    IEM product_id metadata is unreliable — ASUS01 and ASUS02 labels are
+    often swapped. This checks the WMO header line in the actual text.
+    """
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("ASUS02"):
+            return True
+        if line.startswith("ASUS01"):
+            return False
+    return False
 
 
 class CODSUSClient(BaseAPIClient):
@@ -144,23 +176,18 @@ class CODSUSClient(BaseAPIClient):
         list_resp.raise_for_status()
         entries = list_resp.json().get("data", [])
 
-        # find latest ASUS02 bulletin
-        product_id = None
+        # IEM product_id labels are unreliable — ASUS01/ASUS02 metadata is
+        # often swapped. check the actual bulletin header text to find a
+        # real ASUS02 (7-digit high-resolution coordinates).
         for entry in entries:
             pid = entry.get("product_id", "")
-            if "ASUS02" in pid:
-                product_id = pid
-                break
+            text_resp = await client.get(f"{IEM_BASE}/api/1/nwstext/{pid}")
+            text_resp.raise_for_status()
+            bulletin_text = text_resp.text
+            if _is_asus02(bulletin_text):
+                return parse_bulletin(bulletin_text)
 
-        if product_id is None:
-            raise ValueError("no ASUS02 bulletin found in CODSUS listing")
-
-        # fetch the bulletin text
-        text_resp = await client.get(f"{IEM_BASE}/api/1/nwstext/{product_id}")
-        text_resp.raise_for_status()
-        bulletin_text = text_resp.text
-
-        return parse_bulletin(bulletin_text)
+        raise ValueError("no ASUS02 bulletin found in CODSUS listing")
 
     async def get_analysis(self) -> SurfaceAnalysis:
         return await self._cache.get_or_fetch(
