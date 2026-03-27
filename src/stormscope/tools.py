@@ -1208,6 +1208,8 @@ def _which_side_of_front(lat: float, lon: float, coords: list, front_type: str) 
     """
     if front_type != "cold":
         return None
+    if len(coords) < 2:
+        return None
 
     # find the nearest segment
     best_i = 0
@@ -1301,7 +1303,7 @@ async def _surface_analysis_codsus(
 
     parsed_fronts = []
     for front in analysis.fronts:
-        if len(front.coords) < 1:
+        if len(front.coords) < 2:
             continue
         # CODSUS coords are (lat, lon); _nearest_point_on_line expects [lon, lat]
         coords_lonlat = [[lon, lat] for lat, lon in front.coords]
