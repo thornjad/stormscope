@@ -846,7 +846,7 @@ class TestGetSurfaceAnalysis:
         assert len(result["nearest_pressure_centers"]) == 2
         front = result["nearest_fronts"][0]
         assert "nearest_point" in front
-        assert "geometry_type" in front
+        assert front["geometry_type"] == "MultiLineString"
         center = result["nearest_pressure_centers"][0]
         assert "coordinates" in center
 
@@ -1099,6 +1099,23 @@ class TestGetSurfaceAnalysis:
         cold_fronts = [f for f in result["nearest_fronts"] if f["type"] == "cold"]
         assert len(cold_fronts) > 0
         assert cold_fronts[0].get("position") == "cold side (behind front)"
+
+    @patch("stormscope.tools._codsus")
+    async def test_analysis_single_coord_front_skipped(self, mock_codsus):
+        from stormscope.codsus import SurfaceAnalysis, Front
+        mock_codsus.get_analysis = AsyncMock(return_value=SurfaceAnalysis(
+            valid_time="261500Z",
+            fronts=[
+                Front(type="cold", strength="standard", coords=[(45.0, -93.0)]),
+            ],
+            pressure_centers=[],
+        ))
+
+        from stormscope.tools import get_surface_analysis
+        result = await get_surface_analysis(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert result["nearest_fronts"] == []
 
     @patch("stormscope.tools._codsus")
     async def test_analysis_error_handling(self, mock_codsus):

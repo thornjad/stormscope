@@ -35,6 +35,8 @@ STNRY 4111054 4171062 4271074 4301088
 OCFNT 5321372 5381374 5421359
 TROF 4480917 4480927 4530938
 COLD WK 3500900 3450910 3400920
+WARM STG 4200900 4250910 4300920
+DRYLN 3800950 3750960 3700970
 """
 
 SAMPLE_ASUS01_TEXT = """\
@@ -121,11 +123,28 @@ class TestParseBulletin:
         assert len(weak[0].coords) == 3
         assert weak[0].coords[0] == (35.0, -90.0)
 
+    def test_strong_warm_front(self):
+        result = parse_bulletin(SAMPLE_BULLETIN)
+        warm = [f for f in result.fronts if f.type == "warm"]
+        strong = [f for f in warm if f.strength == "strong"]
+        assert len(strong) == 1
+        assert len(strong[0].coords) == 3
+        assert strong[0].coords[0] == (42.0, -90.0)
+
+    def test_dryline(self):
+        result = parse_bulletin(SAMPLE_BULLETIN)
+        dryln = [f for f in result.fronts if f.type == "dryline"]
+        assert len(dryln) == 1
+        assert len(dryln[0].coords) == 3
+        assert dryln[0].strength == "standard"
+
     def test_warm_front(self):
         result = parse_bulletin(SAMPLE_BULLETIN)
         warm = [f for f in result.fronts if f.type == "warm"]
-        assert len(warm) == 1
-        assert len(warm[0].coords) == 3
+        assert len(warm) == 2
+        standard = [f for f in warm if f.strength == "standard"]
+        assert len(standard) == 1
+        assert len(standard[0].coords) == 3
 
     def test_stationary_front(self):
         result = parse_bulletin(SAMPLE_BULLETIN)
@@ -158,8 +177,9 @@ class TestParseBulletin:
 
     def test_front_counts(self):
         result = parse_bulletin(SAMPLE_BULLETIN)
-        # 2 cold (standard + weak), 1 warm, 1 stationary, 1 occluded, 1 trough
-        assert len(result.fronts) == 6
+        # 2 cold (standard + weak), 2 warm (standard + strong), 1 stationary,
+        # 1 occluded, 1 trough, 1 dryline
+        assert len(result.fronts) == 8
 
     def test_continuation_lines(self):
         text = """\
@@ -199,7 +219,7 @@ async def test_fetch_latest(codsus_client):
 
     assert isinstance(result, SurfaceAnalysis)
     assert result.valid_time == "261500Z"
-    assert len(result.fronts) == 6
+    assert len(result.fronts) == 8
     assert len(result.pressure_centers) == 4
 
 
@@ -265,7 +285,7 @@ async def test_mislabeled_asus02_skipped(codsus_client):
 
     result = await codsus_client.get_analysis()
     assert result.valid_time == "261500Z"
-    assert len(result.fronts) == 6
+    assert len(result.fronts) == 8
 
 
 @respx.mock
@@ -295,3 +315,13 @@ async def test_stale_fallback(codsus_client):
 
     result = await codsus_client.get_analysis()
     assert result.valid_time == "261500Z"
+
+
+@respx.mock
+async def test_empty_listing_raises(codsus_client):
+    respx.get(f"{IEM_BASE}/api/1/nws/afos/list.json").mock(
+        return_value=httpx.Response(200, json={"data": []}),
+    )
+
+    with pytest.raises(ValueError, match="no ASUS02 bulletin found"):
+        await codsus_client._fetch_latest()
