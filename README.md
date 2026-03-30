@@ -195,4 +195,6 @@ uv run python -m pytest
 
 [ISC](./LICENSE)
 
+---
+
 Found this useful? [Buy me a coffee!](https://buymeacoffee.com/jademichaelthornton)
