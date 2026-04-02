@@ -45,6 +45,7 @@ MOCK_OBSERVATION_RESPONSE = {
         "windSpeed": {"value": 3.6, "unitCode": "wmoUnit:km_h-1"},
         "windDirection": {"value": 225, "unitCode": "wmoUnit:degree_(angle)"},
         "windGust": {"value": None, "unitCode": "wmoUnit:km_h-1"},
+        "seaLevelPressure": {"value": 102000, "unitCode": "wmoUnit:Pa"},
         "barometricPressure": {"value": 101325, "unitCode": "wmoUnit:Pa"},
         "visibility": {"value": 16093, "unitCode": "wmoUnit:m"},
         "heatIndex": {"value": None, "unitCode": "wmoUnit:degC"},

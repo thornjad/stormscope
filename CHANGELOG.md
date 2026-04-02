@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.3
+
+- fix conditions reporting station pressure instead of sea level pressure
+- fix wind_direction contradicting Tempest wind in full-detail conditions
+
 ## 1.4.2
 
 - fix surface analysis using forecast bulletin instead of current conditions; parse CODSUS coded bulletin for actual current analysis

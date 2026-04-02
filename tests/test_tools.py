@@ -111,6 +111,42 @@ class TestGetConditions:
         assert result["wind_gust"] == "Calm"
 
     @patch("stormscope.tools._nws")
+    async def test_pressure_uses_sea_level(self, mock_nws):
+        """sea level pressure takes priority over barometric (station) pressure."""
+        m = _mock_nws()
+        obs = dict(OBS_PROPS)
+        # seaLevelPressure (102000 Pa = 30.12 inHg) differs from barometricPressure
+        # (101325 Pa = 29.92 inHg) so we can verify which field is used
+        obs["seaLevelPressure"] = {"value": 102000, "unitCode": "wmoUnit:Pa"}
+        obs["barometricPressure"] = {"value": 101325, "unitCode": "wmoUnit:Pa"}
+        m.get_latest_observation.return_value = obs
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert result["pressure"] == "30.12 inHg"
+
+    @patch("stormscope.tools._nws")
+    async def test_pressure_falls_back_to_barometric(self, mock_nws):
+        """falls back to barometricPressure when seaLevelPressure is absent."""
+        m = _mock_nws()
+        obs = dict(OBS_PROPS)
+        obs.pop("seaLevelPressure", None)
+        obs["barometricPressure"] = {"value": 101325, "unitCode": "wmoUnit:Pa"}
+        m.get_latest_observation.return_value = obs
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert result["pressure"] == "29.92 inHg"
+
+    @patch("stormscope.tools._nws")
     async def test_error_for_non_us(self, mock_nws):
         mock_nws.get_point = AsyncMock(
             side_effect=ValueError("NWS only covers US territories"),
@@ -1904,4 +1940,22 @@ class TestTempestIntegration:
             tools_mod._tempest = orig
 
         assert "sensor_divergence" not in result
+
+    def test_merge_conditions_wind_direction_overwritten_by_tempest(self):
+        """wind_direction in full-detail result must be updated when Tempest overwrites wind."""
+        from stormscope.tools import _merge_tempest_conditions
+
+        # simulate full-detail NWS result with ENE from the METAR
+        nws_result = {
+            "wind": "ENE 5 kt",
+            "wind_direction": "ENE",
+            "temperature": "72°F",
+            "observation_time": "N/A",
+        }
+        # Tempest reports NNW 2 mph (wind_direction 337°)
+        obs = {"wind_avg": 2.0, "wind_direction": 337}
+        result = _merge_tempest_conditions(nws_result, obs, US_PREFS)
+
+        assert "NNW" in result["wind"]
+        assert result["wind_direction"] == "NNW"
 

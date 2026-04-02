@@ -169,6 +169,8 @@ def _merge_tempest_conditions(
     if wind_n is not None:
         cardinal = degrees_to_cardinal(wind_dir)
         result["wind"] = _fmt_wind(wind_n, cardinal, prefs)
+        if "wind_direction" in result:
+            result["wind_direction"] = cardinal or "N/A"
     pressure_n = normalized.get("station_pressure")
     if pressure_n is not None:
         if prefs.pressure == "inhg":
@@ -514,7 +516,7 @@ async def get_conditions(
         gust_kmh = _obs_value(obs, "windGust")
         humidity = _obs_value(obs, "relativeHumidity")
         vis_m = _obs_value(obs, "visibility")
-        pressure_pa = _obs_value(obs, "barometricPressure")
+        pressure_pa = _obs_value(obs, "seaLevelPressure") or _obs_value(obs, "barometricPressure")
 
         temp_f = c_to_f(temp_c)
         feels_like_c = heat_index_c if heat_index_c is not None else wind_chill_c
