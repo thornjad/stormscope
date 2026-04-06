@@ -293,7 +293,7 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
                 p["precipitation_chance"] = f"{precip_prob}%"
 
             precip_type = th.get("precip_type")
-            if precip_type and precip_type != "none":
+            if precip_type and precip_type != "none" and (precip_prob is None or precip_prob > 0):
                 p["precip_type"] = precip_type
 
             air_temp = th.get("air_temperature")
@@ -628,9 +628,7 @@ def _build_forecast_period(
         entry["name"] = period["name"]
 
     entry["temperature"] = f"{period['temperature']}°{period['temperatureUnit']}"
-
-    if not include_daily_fields:
-        entry["start_time"] = period["startTime"]
+    entry["start_time"] = period["startTime"]
 
     # dewpoint / frost point
     dp_c = grid_arrays["dewpoint"][i] if i < len(grid_arrays["dewpoint"]) else None
