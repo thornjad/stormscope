@@ -531,7 +531,7 @@ _SUNRISE_EPOCH = 1741081200  # approximate sunrise
 _SUNSET_EPOCH = 1741124400   # approximate sunset
 
 MOCK_TEMPEST_FORECAST_RESPONSE = {
-    "station_name": "Holz Lake",
+    "location_name": "Holz Lake",
     "forecast": {
         "daily": [
             {

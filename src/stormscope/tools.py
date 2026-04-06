@@ -316,7 +316,7 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
         result["nws_source"] = nws_source
     result["data_source"] = "tempest"
 
-    station_name = tempest_forecast.get("station_name") or fc.get("station_name")
+    station_name = tempest_forecast.get("location_name")
     if station_name:
         result["tempest_station"] = station_name
 

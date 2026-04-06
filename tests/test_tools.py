@@ -1881,6 +1881,7 @@ class TestTempestIntegration:
         result = _merge_tempest_forecast(nws_result, MOCK_TEMPEST_FORECAST_RESPONSE, US_PREFS)
         assert result["data_source"] == "tempest"
         assert result["nws_source"] == "NWS/MPX"
+        assert result["tempest_station"] == "Holz Lake"
 
     def test_merge_forecast_daily_temperature_overwrite_daytime(self):
         """daytime daily period gets air_max as primary temperature."""
