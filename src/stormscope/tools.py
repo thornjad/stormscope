@@ -182,8 +182,11 @@ def _merge_tempest_conditions(
     return result
 
 
+_SIDECAR_FIELDS = ("temperature", "forecast", "wind", "feels_like", "precipitation_chance")
+
+
 def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: UnitPrefs) -> dict:
-    """add sunrise/sunset and supplementary Tempest data to NWS forecast."""
+    """merge Tempest forecast as primary source; NWS values become nws_* sidecars."""
     result = dict(nws_result)
 
     fc = tempest_forecast.get("forecast", {})
@@ -211,6 +214,9 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
     enriched_periods = []
     for period in result.get("periods", []):
         p = dict(period)
+        # snapshot NWS originals before any Tempest overwrite
+        nws_snapshot = {f: p.get(f) for f in _SIDECAR_FIELDS}
+
         start_str = p.get("start_time") or ""
         date_key = None
         period_epoch_hr = None
@@ -240,46 +246,75 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
                 except Exception:
                     pass
 
-            # air_max/air_min come from Tempest in the requested temp unit
-            t_high = td.get("air_max")
-            t_low = td.get("air_min")
-            if t_high is not None:
-                f_val = t_high if prefs.temperature == "f" else None
-                c_val = t_high if prefs.temperature == "c" else None
-                p["tempest_high"] = _fmt_temp(f_val, c_val, prefs)
-            if t_low is not None:
-                f_val = t_low if prefs.temperature == "f" else None
-                c_val = t_low if prefs.temperature == "c" else None
-                p["tempest_low"] = _fmt_temp(f_val, c_val, prefs)
+            # daily temperature: only for daily-mode periods that have is_daytime
+            if "is_daytime" in p:
+                t_val = td.get("air_max") if p["is_daytime"] else td.get("air_min")
+                if t_val is not None:
+                    f_val = t_val if prefs.temperature == "f" else None
+                    c_val = t_val if prefs.temperature == "c" else None
+                    p["temperature"] = _fmt_temp(f_val, c_val, prefs)
 
             conditions = td.get("conditions")
             if conditions:
-                p["tempest_conditions"] = conditions
+                p["forecast"] = conditions
 
             # precip from Tempest is in mm (API does not support cm); convert when needed
             precip_mm = td.get("precip")
             if precip_mm is not None:
                 if prefs.accumulation == "cm":
-                    p["tempest_precip"] = f"{precip_mm / 10:.1f} cm"
+                    p["precip"] = f"{precip_mm / 10:.1f} cm"
                 else:
-                    p["tempest_precip"] = _fmt_accumulation(precip_mm, prefs)
+                    p["precip"] = _fmt_accumulation(precip_mm, prefs)
 
         if period_epoch_hr is not None and period_epoch_hr in tempest_hourly_by_epoch:
             th = tempest_hourly_by_epoch[period_epoch_hr]
+
+            wind_avg = th.get("wind_avg")
+            wind_dir = th.get("wind_direction_cardinal")
+            if wind_avg is not None:
+                p["wind"] = _fmt_wind(wind_avg, wind_dir, prefs)
+
             gust = th.get("wind_gust")
-            # guard so field is absent (not "Calm") when gust data is unavailable
             if gust is not None:
-                p["tempest_wind_gust"] = _fmt_gust(gust, prefs)
-            precip_type = th.get("precip_type")
-            if precip_type and precip_type != "none":
-                p["tempest_precip_type"] = precip_type
+                p["wind_gust"] = _fmt_gust(gust, prefs)
+
             conditions = th.get("conditions")
             if conditions:
-                p["tempest_conditions"] = conditions
+                p["forecast"] = conditions
+
+            feels = th.get("feels_like")
+            if feels is not None:
+                f_val = feels if prefs.temperature == "f" else None
+                c_val = feels if prefs.temperature == "c" else None
+                p["feels_like"] = _fmt_temp(f_val, c_val, prefs)
+
+            precip_prob = th.get("precip_probability")
+            if precip_prob is not None:
+                p["precipitation_chance"] = f"{precip_prob}%"
+
+            precip_type = th.get("precip_type")
+            if precip_type and precip_type != "none":
+                p["precip_type"] = precip_type
+
+            air_temp = th.get("air_temperature")
+            if air_temp is not None:
+                f_val = air_temp if prefs.temperature == "f" else None
+                c_val = air_temp if prefs.temperature == "c" else None
+                p["temperature"] = _fmt_temp(f_val, c_val, prefs)
+
+        # preserve original NWS values as sidecars when Tempest overwrote them
+        for field in _SIDECAR_FIELDS:
+            original = nws_snapshot[field]
+            if original is not None and p.get(field) != original:
+                p[f"nws_{field}"] = original
 
         enriched_periods.append(p)
 
     result["periods"] = enriched_periods
+    nws_source = result.get("data_source")
+    if nws_source:
+        result["nws_source"] = nws_source
+    result["data_source"] = "tempest"
 
     station_name = tempest_forecast.get("station_name") or fc.get("station_name")
     if station_name:
@@ -682,6 +717,7 @@ async def get_forecast(
             arrays = _extract_grid_arrays(gd, periods)
             result = {
                 "location": _location_name(point),
+                "data_source": f"NWS/{wfo}",
                 "periods": [
                     _build_forecast_period(p, i, arrays, prefs)
                     for i, p in enumerate(periods)
@@ -701,6 +737,7 @@ async def get_forecast(
             ]
             return {
                 "location": _location_name(point),
+                "data_source": f"NWS/{wfo}",
                 "grid": {k: data.get(k) for k in params if k in data},
                 "elevation": data.get("elevation"),
                 "update_time": data.get("updateTime"),
@@ -729,6 +766,7 @@ async def get_forecast(
 
         result: dict = {
             "location": _location_name(point),
+            "data_source": f"NWS/{wfo}",
             "periods": [
                 _build_forecast_period(p, i, arrays, prefs, include_daily_fields=True)
                 for i, p in enumerate(periods)
