@@ -1806,6 +1806,49 @@ class TestTempestIntegration:
         period = result["periods"][0]
         assert "precip_type" not in period
 
+    def test_merge_forecast_hourly_precip_type_suppressed_at_zero_probability(self):
+        """precip_type suppressed when precip_probability is 0 even if type is not "none"."""
+        from stormscope.tools import _merge_tempest_forecast
+        from datetime import datetime, timezone
+        import copy
+
+        tempest_fc = copy.deepcopy(MOCK_TEMPEST_FORECAST_RESPONSE)
+        tempest_fc["forecast"]["hourly"][0]["precip_type"] = "rain"
+        tempest_fc["forecast"]["hourly"][0]["precip_probability"] = 0
+
+        hourly_epoch = tempest_fc["forecast"]["hourly"][0]["time"]
+        start_str = datetime.fromtimestamp(hourly_epoch, tz=timezone.utc).isoformat()
+        nws_result = {
+            "periods": [{"start_time": start_str}],
+            "location": "Minneapolis, MN",
+        }
+        result = _merge_tempest_forecast(nws_result, tempest_fc, US_PREFS)
+        period = result["periods"][0]
+        assert "precip_type" not in period
+        assert period["precipitation_chance"] == "0%"
+
+    def test_merge_forecast_daily_start_time_present(self):
+        """daily-mode periods include start_time (regression: was previously omitted)."""
+        from stormscope.tools import _build_forecast_period
+        from stormscope.units import UnitPrefs
+
+        period = {
+            "name": "Today",
+            "temperature": 72,
+            "temperatureUnit": "F",
+            "startTime": "2026-04-07T06:00:00-05:00",
+            "windDirection": "N",
+            "windSpeed": "10 mph",
+            "shortForecast": "Sunny",
+            "detailedForecast": "Sunny, with a high near 72.",
+            "isDaytime": True,
+            "probabilityOfPrecipitation": {"value": 0},
+        }
+        arrays = {"dewpoint": [], "apparentTemperature": [], "pressure": [],
+                  "snowfallAmount": [], "iceAccumulation": []}
+        entry = _build_forecast_period(period, 0, arrays, US_PREFS, include_daily_fields=True)
+        assert entry["start_time"] == "2026-04-07T06:00:00-05:00"
+
     def test_merge_forecast_hourly_no_match(self):
         """NWS periods at non-matching times keep original values with no sidecars."""
         from stormscope.tools import _merge_tempest_forecast
