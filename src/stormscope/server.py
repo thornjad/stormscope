@@ -55,8 +55,9 @@ mcp = FastMCP(
         "uv_index, lightning_strikes_1hr, air_density, and wet_bulb_temperature. "
         "The data_source field indicates whether primary readings (temperature, "
         "wind, pressure) come from the Tempest station or NWS. Forecasts include "
-        "sunrise and sunset times, and supplementary Tempest high/low temperatures "
-        "when available."
+        "a data_source field (NWS/{office} or tempest). When Tempest is the "
+        "primary source, original NWS values are retained as nws_* fields for "
+        "comparison."
     ),
 )
 
