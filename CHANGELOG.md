@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.4
+
+- fix forecast using Tempest data as supplementary instead of primary; Tempest values now replace NWS primary fields with original NWS values retained as `nws_*` sidecars
+- fix daily Tempest enrichment silently failing because `start_time` was omitted from daily forecast periods
+- fix `precip_type` appearing on periods with 0% precipitation probability
+- fix `tempest_station` always missing from forecast output (API returns `location_name`, not `station_name`)
+- add `data_source` field to all forecast modes (`NWS/{office}` or `tempest`)
+
 ## 1.4.3
 
 - fix conditions reporting station pressure instead of sea level pressure
