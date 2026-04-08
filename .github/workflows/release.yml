@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - run: uv sync --group dev
+
+      - run: uv run python -m pytest
+
+  build-mcpb:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: install mcpb cli
+        run: npm install -g @anthropic-ai/mcpb
+
+      - name: build mcpb bundle
+        run: mcpb pack . stormscope.mcpb
+
+      - name: extract changelog
+        id: changelog
+        run: |
+          # extract the first version section from CHANGELOG.md
+          changelog=$(awk '/^## /{if(found) exit; found=1; next} found{print}' CHANGELOG.md)
+          # write to file for gh release to consume
+          echo "$changelog" > release_notes.txt
+
+      - name: create github release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            stormscope.mcpb \
+            --title "StormScope ${{ github.ref_name }}" \
+            --notes-file release_notes.txt
