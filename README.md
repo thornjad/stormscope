@@ -20,6 +20,12 @@ Most tools support a `detail` parameter: **standard** gives a clean summary, **f
 
 ## Installation
 
+### Claude Desktop
+
+[Download the latest StormScope extension](https://github.com/thornjad/stormscope/releases/latest/download/stormscope.mcpb), then double-click the file or drag it into the Claude Desktop window. A settings dialog will appear where you can enter your location coordinates and optional Tempest station configuration. No additional software required.
+
+### Claude Code
+
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
