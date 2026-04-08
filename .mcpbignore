@@ -1,0 +1,17 @@
+tests/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+.github/
+.git/
+.cursor/
+.claude/
+coverage/
+htmlcov/
+*.md
+LICENSE
+stormscope-architecture.md
+uv.lock
