@@ -75,7 +75,7 @@
     }
   ],
   "compatibility": {
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "runtimes": {
       "python": ">=3.11"
     }
