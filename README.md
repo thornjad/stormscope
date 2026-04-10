@@ -20,6 +20,12 @@ Most tools support a `detail` parameter: **standard** gives a clean summary, **f
 
 ## Installation
 
+### Claude Desktop
+
+[Download the latest StormScope extension](https://github.com/thornjad/stormscope/releases/latest/download/stormscope.mcpb), then double-click the file or drag it into the Claude Desktop window. A settings dialog will appear where you can enter your location coordinates and optional Tempest station configuration. No additional software required.
+
+### Claude Code
+
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
@@ -64,8 +70,10 @@ All location-aware tools accept optional `latitude` and `longitude` parameters. 
 1. **Explicit `latitude`/`longitude` params** — the AI can pass coordinates for any location
 2. **Tempest station location** (opt-in) — set `USE_TEMPEST_STATION_GEOLOCATION=true` with a configured station to use its coordinates
 3. **`PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE` env vars** — precise, recommended for your home location
-4. **macOS CoreLocation** (opt-in) — set `ENABLE_CORELOCATION=true`, requires Xcode Command Line Tools, ~100m WiFi-based accuracy, prompts for location permission on first use. Compiles a small Swift helper into `~/Library/Application Support/stormscope/`
+4. **macOS CoreLocation** (opt-in, macOS only) — set `ENABLE_CORELOCATION=true`, requires Xcode Command Line Tools, ~100m WiFi-based accuracy, prompts for location permission on first use. Compiles a small Swift helper into `~/Library/Application Support/stormscope/`
 5. **IP geolocation** via [ipinfo.io](https://ipinfo.io) — automatic, city-level accuracy, one request per session
+
+On Linux, tiers 1-3 and 5 work identically. CoreLocation is skipped automatically. For precise location on Linux, set `PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE` or use a Tempest station.
 
 Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geolocation (tiers 4 and 5). With auto-geolocation disabled and no env vars or explicit params, tools return an error.
 

@@ -1,0 +1,135 @@
+{
+  "manifest_version": "0.4",
+  "name": "stormscope",
+  "display_name": "StormScope",
+  "version": "1.4.4",
+  "description": "Real-time US weather data: conditions, forecasts, alerts, severe weather outlooks, radar, upper-air analysis, and surface fronts",
+  "long_description": "StormScope brings real-time US weather intelligence to Claude. It aggregates data from NWS, NOAA Storm Prediction Center, Weather Prediction Center, Iowa Environmental Mesonet radar, and Open-Meteo upper-air model data into 9 tools that give Claude deep weather awareness.\n\nCapabilities include current conditions, multi-format forecasts (daily narrative, hourly, raw gridpoint), active weather alerts with severity filtering, SPC severe weather outlooks (categorical and probabilistic), national severe outlook with region descriptions, NEXRAD radar metadata, 500mb upper-air analysis with derived vorticity, surface frontal analysis with warm/cold sector detection, and a combined briefing that adapts to the situation.\n\nOptionally integrates with your WeatherFlow Tempest personal weather station for hyper-local sensor data: solar radiation, UV index, lightning strikes, air density, and wet bulb temperature.\n\nUS locations only. Covers all 50 states, DC, and US territories.",
+  "author": {
+    "name": "Jade Michael Thornton",
+    "url": "https://jmthornton.net"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thornjad/stormscope.git"
+  },
+  "homepage": "https://github.com/thornjad/stormscope",
+  "support": "https://github.com/thornjad/stormscope/issues",
+  "icon": "icon.svg",
+  "license": "ISC",
+  "keywords": ["weather", "nws", "noaa", "spc", "radar", "forecast", "alerts", "severe-weather", "tempest"],
+  "server": {
+    "type": "uv",
+    "entry_point": "src/stormscope/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}", "stormscope"],
+      "env": {
+        "PRIMARY_LATITUDE": "${user_config.primary_latitude}",
+        "PRIMARY_LONGITUDE": "${user_config.primary_longitude}",
+        "UNITS": "${user_config.units}",
+        "TEMPEST_TOKEN": "${user_config.tempest_token}",
+        "TEMPEST_STATION_ID": "${user_config.tempest_station_id}",
+        "TEMPEST_STATION_NAME": "${user_config.tempest_station_name}",
+        "USE_TEMPEST_STATION_GEOLOCATION": "${user_config.use_tempest_station_geolocation}",
+        "ENABLE_CORELOCATION": "${user_config.enable_corelocation}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_conditions",
+      "description": "Get current weather conditions: temperature, wind, humidity, sky, pressure"
+    },
+    {
+      "name": "get_forecast",
+      "description": "Get weather forecast in daily narrative, hourly, or raw gridpoint format"
+    },
+    {
+      "name": "get_alerts",
+      "description": "Get active weather alerts with severity filtering"
+    },
+    {
+      "name": "get_spc_outlook",
+      "description": "Check SPC severe weather outlook: categorical risk or probabilistic tornado/wind/hail"
+    },
+    {
+      "name": "get_national_outlook",
+      "description": "Get CONUS-wide SPC severe weather risk areas with region descriptions"
+    },
+    {
+      "name": "get_radar",
+      "description": "Get NEXRAD radar info with weather summary and imagery links"
+    },
+    {
+      "name": "get_upper_air",
+      "description": "Get 500mb upper-air analysis: heights, temperature, wind, and derived vorticity"
+    },
+    {
+      "name": "get_surface_analysis",
+      "description": "Get surface analysis: fronts, pressure centers, warm/cold sector detection"
+    },
+    {
+      "name": "get_briefing",
+      "description": "Get a comprehensive weather briefing combining conditions, forecast, alerts, and outlook"
+    }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "linux"],
+    "runtimes": {
+      "python": ">=3.11"
+    }
+  },
+  "user_config": {
+    "primary_latitude": {
+      "type": "number",
+      "title": "Primary Latitude",
+      "description": "Default latitude for weather queries (e.g. 44.98 for Minneapolis)",
+      "required": true,
+      "min": -90,
+      "max": 90
+    },
+    "primary_longitude": {
+      "type": "number",
+      "title": "Primary Longitude",
+      "description": "Default longitude for weather queries (e.g. -93.27 for Minneapolis)",
+      "required": true,
+      "min": -180,
+      "max": 180
+    },
+    "units": {
+      "type": "string",
+      "title": "Units",
+      "description": "Unit system: 'us' for Fahrenheit/mph or 'si' for Celsius/km/h",
+      "default": "us"
+    },
+    "tempest_token": {
+      "type": "string",
+      "title": "Tempest Token",
+      "description": "WeatherFlow Tempest Personal Access Token (optional, enables hyper-local station data)",
+      "sensitive": true
+    },
+    "tempest_station_id": {
+      "type": "string",
+      "title": "Tempest Station ID",
+      "description": "Specific Tempest station ID to use (optional, auto-discovers nearest if omitted)"
+    },
+    "tempest_station_name": {
+      "type": "string",
+      "title": "Tempest Station Name",
+      "description": "Tempest station name to match instead of ID (optional)"
+    },
+    "use_tempest_station_geolocation": {
+      "type": "boolean",
+      "title": "Use Tempest Station Location",
+      "description": "Use your Tempest station's GPS coordinates as the default location",
+      "default": false
+    },
+    "enable_corelocation": {
+      "type": "boolean",
+      "title": "Enable macOS CoreLocation",
+      "description": "Use macOS WiFi-based location detection as fallback (macOS only, requires Xcode Command Line Tools)",
+      "default": false
+    }
+  }
+}
