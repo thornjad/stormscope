@@ -6,7 +6,7 @@ from stormscope.tools import (
     _fmt_accumulation, _fmt_temp, _fmt_wind, _fmt_visibility, _fmt_pressure,
     _fmt_upper_wind, _fmt_vorticity, _fmt_distance,
 )
-from stormscope.units import UnitPrefs
+from stormscope.units import UnitPrefs, station_pressure_to_slp_mb
 
 import pytest
 
@@ -128,6 +128,7 @@ class TestGetConditions:
         result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
 
         assert result["pressure"] == "30.12 inHg"
+        assert result["pressure_source"] == "sea_level"
 
     @patch("stormscope.tools._nws")
     async def test_pressure_falls_back_to_barometric(self, mock_nws):
@@ -169,6 +170,19 @@ class TestGetConditions:
 
         assert "error" in result
         assert "station" in result["error"]
+
+    @patch("stormscope.tools._nws")
+    async def test_pressure_source_field_present(self, mock_nws):
+        """pressure_source field defaults to sea_level when no Tempest is active."""
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert result["pressure_source"] == "sea_level"
 
 
 class TestGetForecast:
@@ -1698,7 +1712,8 @@ class TestTempestIntegration:
         obs = {
             "air_temperature": 0.0,       # 0°C → 32°F
             "wind_avg": 10.0,             # 10 m/s → 22.37 mph
-            "station_pressure": 1013.25,  # mb → ~29.92 inHg
+            "station_pressure": 1013.25,  # mb → ~29.92 inHg at sea level
+            "station_elevation": 0.0,     # sea level → SLP == station pressure
             "wind_direction": 270,
             "solar_radiation": 200,
         }
@@ -2154,4 +2169,93 @@ class TestTempestIntegration:
 
         assert "NNW" in result["wind"]
         assert result["wind_direction"] == "NNW"
+
+
+class TestSLPConversion:
+    """unit tests for station_pressure_to_slp_mb."""
+
+    def test_zero_elevation_returns_unchanged(self):
+        result = station_pressure_to_slp_mb(1013.25, 0.0, 20.0)
+        assert result == 1013.25
+
+    def test_elevation_increases_pressure(self):
+        result = station_pressure_to_slp_mb(1000.0, 100.0, 20.0)
+        assert result == pytest.approx(1011.7, abs=0.1)
+
+    def test_higher_elevation_larger_correction(self):
+        low = station_pressure_to_slp_mb(1000.0, 100.0, 20.0)
+        high = station_pressure_to_slp_mb(1000.0, 500.0, 20.0)
+        assert high > low
+
+    def test_290m_elevation_msp_area(self):
+        """Minneapolis area elevation (~290m) produces a reasonable SLP correction."""
+        result = station_pressure_to_slp_mb(1013.25, 290.0, 20.0)
+        # correction should be roughly 34 mb for 290m
+        assert result == pytest.approx(1013.25 + 34, abs=2.0)
+
+
+class TestTempestPressureBehavior:
+    """integration tests for Tempest SLP conversion in get_conditions."""
+
+    def _tempest_obs(self, elevation=290.0):
+        return {
+            "station_pressure": 1013.25,
+            "air_temperature": 20.0,
+            "station_elevation": elevation,
+            "station_name": "Holz Lake",
+        }
+
+    @patch("stormscope.tools._fetch_tempest_obs")
+    @patch("stormscope.tools._tempest")
+    @patch("stormscope.tools._nws")
+    async def test_tempest_slp_used_instead_of_nws_slp(
+        self, mock_nws, mock_tempest, mock_fetch_tempest_obs
+    ):
+        m = _mock_nws()
+        obs = dict(OBS_PROPS)
+        obs["seaLevelPressure"] = {"value": 102000, "unitCode": "wmoUnit:Pa"}
+        m.get_latest_observation.return_value = obs
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        tempest_obs = self._tempest_obs()
+        mock_fetch_tempest_obs.return_value = tempest_obs
+        mock_tempest.normalize_obs.side_effect = lambda o, p: o
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert result["pressure_source"] == "tempest_slp"
+        assert result["data_source"] == "tempest"
+        assert result["pressure"] != "30.12 inHg"
+        from stormscope.units import pa_to_inhg
+        expected_inhg = pa_to_inhg(station_pressure_to_slp_mb(1013.25, 290.0, 20.0) * 100)
+        assert "inHg" in result["pressure"]
+        assert float(result["pressure"].split()[0]) == pytest.approx(expected_inhg, abs=0.005)
+
+    @patch("stormscope.tools._fetch_tempest_obs")
+    @patch("stormscope.tools._tempest")
+    @patch("stormscope.tools._nws")
+    async def test_nws_slp_used_when_tempest_elevation_missing(
+        self, mock_nws, mock_tempest, mock_fetch_tempest_obs
+    ):
+        m = _mock_nws()
+        obs = dict(OBS_PROPS)
+        obs["seaLevelPressure"] = {"value": 102000, "unitCode": "wmoUnit:Pa"}
+        m.get_latest_observation.return_value = obs
+        mock_nws.get_point = m.get_point
+        mock_nws.get_stations = m.get_stations
+        mock_nws.get_latest_observation = m.get_latest_observation
+
+        tempest_obs = self._tempest_obs(elevation=None)
+        mock_fetch_tempest_obs.return_value = tempest_obs
+        mock_tempest.normalize_obs.side_effect = lambda o, p: o
+
+        from stormscope.tools import get_conditions
+        result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert result["pressure"] == "30.12 inHg"
+        assert result["pressure_source"] == "sea_level"
+        assert result["data_source"] == "tempest"
 

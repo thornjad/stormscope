@@ -1,5 +1,6 @@
 """Unit conversion helpers for NWS observation data."""
 
+import math
 from dataclasses import dataclass
 
 
@@ -112,6 +113,22 @@ def pa_to_inhg(pascals: float | None) -> float | None:
     if pascals is None:
         return None
     return pascals / 3386.389
+
+
+def station_pressure_to_slp_mb(
+    station_pressure_mb: float,
+    elevation_m: float,
+    temp_c: float,
+) -> float:
+    """convert station pressure (mb) to sea level pressure (mb).
+
+    Uses the standard hypsometric formula with ISA lapse rate (6.5 K/km).
+    T_mean is approximated as the midpoint of the column between station and sea level.
+    """
+    if elevation_m == 0.0:
+        return station_pressure_mb
+    t_mean_k = temp_c + 0.00325 * elevation_m + 273.15
+    return station_pressure_mb * math.exp(9.80665 * elevation_m / (287.05 * t_mean_k))
 
 
 _CARDINALS = [

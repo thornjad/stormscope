@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.5
+
+- fix Tempest `station_pressure` silently replacing NWS sea level pressure; Tempest station pressure is now converted to SLP via the hypsometric formula using station elevation and temperature
+- add `pressure_source` field to conditions output (`sea_level` for NWS altimeter-corrected pressure, `tempest_slp` for Tempest-converted SLP)
+
 ## 1.4.4
 
 - fix forecast using Tempest data as supplementary instead of primary; Tempest values now replace NWS primary fields with original NWS values retained as `nws_*` sidecars

@@ -14,7 +14,7 @@ from stormscope.spc import SPCClient
 from stormscope.units import (
     UnitPrefs, c_to_f, degrees_to_cardinal, gpm_to_dam, kmh_to_mph,
     m_to_miles, mm_to_inches, ms_to_kt, ms_to_mph, pa_to_inhg,
-    parse_units,
+    parse_units, station_pressure_to_slp_mb,
 )
 from stormscope.vorticity import compute_vorticity
 from stormscope.tempest import TempestClient
@@ -171,13 +171,15 @@ def _merge_tempest_conditions(
         result["wind"] = _fmt_wind(wind_n, cardinal, prefs)
         if "wind_direction" in result:
             result["wind_direction"] = cardinal or "N/A"
-    pressure_n = normalized.get("station_pressure")
-    if pressure_n is not None:
-        if prefs.pressure == "inhg":
-            result["pressure"] = _fmt_pressure(pressure_n, None, prefs)
-        else:
-            # normalized is mb; _fmt_pressure needs Pa
-            result["pressure"] = _fmt_pressure(None, pressure_n * 100, prefs)
+    station_press_mb = obs.get("station_pressure")
+    elevation_m = obs.get("station_elevation")
+    air_temp_c = obs.get("air_temperature")
+
+    if station_press_mb is not None and elevation_m is not None and air_temp_c is not None:
+        slp_mb = station_pressure_to_slp_mb(station_press_mb, elevation_m, air_temp_c)
+        slp_pa = slp_mb * 100
+        result["pressure"] = _fmt_pressure(pa_to_inhg(slp_pa), slp_pa, prefs)
+        result["pressure_source"] = "tempest_slp"
 
     return result
 
@@ -513,6 +515,7 @@ async def _fetch_tempest_obs(lat: float, lon: float) -> dict | None:
             return None
         # attach station name for display
         obs["station_name"] = station.get("name") or station.get("public_name")
+        obs["station_elevation"] = station.get("elevation")
         return obs
     except Exception:
         logger.debug("tempest observation fetch failed", exc_info=True)
@@ -577,6 +580,7 @@ async def get_conditions(
             "sky_condition": obs.get("textDescription", "N/A"),
             "visibility": _fmt_visibility(m_to_miles(vis_m), vis_m, prefs),
             "pressure": _fmt_pressure(pa_to_inhg(pressure_pa), pressure_pa, prefs),
+            "pressure_source": "sea_level",
             "station_name": station.get("name", "Unknown"),
             "observation_time": obs.get("timestamp", "N/A"),
         }

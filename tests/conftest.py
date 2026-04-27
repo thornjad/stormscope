@@ -471,6 +471,7 @@ TEMPEST_STATION_NEARBY = {
     "latitude": 44.990,
     "longitude": -93.270,
     "timezone": "America/Chicago",
+    "elevation": 290.0,
 }
 
 # Tempest station far away (more than 5 miles)

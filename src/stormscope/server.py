@@ -54,9 +54,12 @@ mcp = FastMCP(
         "hyper-local sensor data from the user's personal station: solar_radiation, "
         "uv_index, lightning_strikes_1hr, air_density, and wet_bulb_temperature. "
         "The data_source field indicates whether primary readings (temperature, "
-        "wind, pressure) come from the Tempest station or NWS. Forecasts include "
-        "a data_source field (NWS/{office} or tempest). When Tempest is the "
-        "primary source, original NWS values are retained as nws_* fields for "
+        "wind) come from the Tempest station or NWS. All pressure values are sea "
+        "level pressure. The pressure_source field is 'tempest_slp' when Tempest "
+        "station pressure was converted to SLP using station elevation, or "
+        "'sea_level' when NWS altimeter-corrected pressure was used. Forecasts "
+        "include a data_source field (NWS/{office} or tempest). When Tempest is "
+        "the primary source, original NWS values are retained as nws_* fields for "
         "comparison."
     ),
 )
