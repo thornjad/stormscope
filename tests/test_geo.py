@@ -150,6 +150,8 @@ class TestEnsureLocationHelper:
             real_binary = real_app / "Contents" / "MacOS" / "StormscopeLocation"
             real_binary.parent.mkdir(parents=True)
             real_binary.touch()
+            # a cache hit now requires the version marker to match the source
+            (real_app / "Contents" / ".swift-version").write_text(geo_module._HELPER_VERSION)
 
             result = _ensure_location_helper()
 
