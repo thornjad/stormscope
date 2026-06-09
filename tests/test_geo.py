@@ -63,7 +63,7 @@ def _reset_geo_cache():
     geo_module._ip_location = None
     geo_module._ip_location_fetched = False
     geo_module._cl_location = None
-    geo_module._cl_location_fetched = False
+    geo_module._cl_expires = 0.0
 
 
 class TestGeolocateIp:
@@ -150,6 +150,8 @@ class TestEnsureLocationHelper:
             real_binary = real_app / "Contents" / "MacOS" / "StormscopeLocation"
             real_binary.parent.mkdir(parents=True)
             real_binary.touch()
+            # a cache hit now requires the version marker to match the source
+            (real_app / "Contents" / ".swift-version").write_text(geo_module._HELPER_VERSION)
 
             result = _ensure_location_helper()
 
@@ -242,6 +244,33 @@ class TestGeolocateCorelocation:
             mock_helper2.assert_not_called()
 
         assert first == second == (40.7128, -74.006)
+
+    @pytest.mark.asyncio
+    async def test_failure_is_retried_not_latched(self):
+        # a cold-start miss must not pin the whole session to the fallback:
+        # once the short failure cache expires, a later call retries and can
+        # succeed when locationd is finally warm.
+        with patch("stormscope.geo._ensure_location_helper", return_value=None) as mock_helper:
+            first = await geolocate_corelocation()
+        assert first is None
+        mock_helper.assert_called_once()
+
+        geo_module._cl_expires = 0.0  # simulate failure ttl elapsed
+
+        mock_proc = AsyncMock()
+        mock_proc.wait = AsyncMock(return_value=0)
+        with (
+            patch("stormscope.geo._ensure_location_helper", return_value=Path("/fake/app")) as mock_helper2,
+            patch("stormscope.geo.tempfile.mkstemp", return_value=(3, "/tmp/stormscope_loc_test")),
+            patch("stormscope.geo.os.close"),
+            patch("stormscope.geo.Path.read_text", return_value="44.9,-93.2\n"),
+            patch("stormscope.geo.Path.unlink"),
+            patch("stormscope.geo.asyncio.create_subprocess_exec", return_value=mock_proc),
+        ):
+            second = await geolocate_corelocation()
+
+        mock_helper2.assert_called_once()
+        assert second == (44.9, -93.2)
 
 
 class TestGeolocate:

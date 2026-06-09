@@ -1,6 +1,7 @@
 """geographic utilities for polygon-to-region descriptions and geolocation."""
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -8,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import httpx
@@ -107,6 +109,15 @@ _LOCATION_SWIFT_SRC = """\
 import CoreLocation
 import Foundation
 
+// max time to wait for a usable fix. a Mac has no GPS, so the first fix after
+// wake-from-sleep depends on a wifi scan that locationd may not have ready yet;
+// startUpdatingLocation keeps trying until one arrives or this budget expires.
+let timeoutSeconds = 30.0
+
+// reject fixes coarser than this (meters); a stale cached centroid can arrive
+// first with poor accuracy and would defeat a hyperlocal proximity check.
+let maxAcceptableAccuracy = 1000.0
+
 class Delegate: NSObject, CLLocationManagerDelegate {
     let manager = CLLocationManager()
 
@@ -117,9 +128,13 @@ class Delegate: NSObject, CLLocationManagerDelegate {
     }
 
     func start() {
-        switch manager.authorizationStatus {
-        case .authorizedAlways:
-            manager.requestLocation()
+        beginIfAuthorized(manager.authorizationStatus)
+    }
+
+    func beginIfAuthorized(_ status: CLAuthorizationStatus) {
+        switch status {
+        case .authorizedAlways, .authorizedWhenInUse:
+            manager.startUpdatingLocation()
         case .notDetermined:
             manager.requestAlwaysAuthorization()
         default:
@@ -128,21 +143,26 @@ class Delegate: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
-        if m.authorizationStatus == .authorizedAlways {
-            m.requestLocation()
-        } else if m.authorizationStatus != .notDetermined {
-            exit(1)
-        }
+        beginIfAuthorized(m.authorizationStatus)
     }
 
     func locationManager(_ m: CLLocationManager, didUpdateLocations locs: [CLLocation]) {
         guard let loc = locs.last else { return }
+        // wait for a valid, sufficiently accurate fix; ignore coarse/stale ones
+        let acc = loc.horizontalAccuracy
+        if acc < 0 || acc > maxAcceptableAccuracy { return }
         print("\\(loc.coordinate.latitude),\\(loc.coordinate.longitude)")
         fflush(stdout)
         exit(0)
     }
 
     func locationManager(_ m: CLLocationManager, didFailWithError error: Error) {
+        // kCLErrorLocationUnknown is transient right after wake; keep the run
+        // loop alive so locationd can deliver a fix once wifi positioning is
+        // ready, instead of giving up on the first miss.
+        if let clErr = error as? CLError, clErr.code == .locationUnknown {
+            return
+        }
         fputs("location error: \\(error.localizedDescription)\\n", stderr)
         exit(1)
     }
@@ -150,9 +170,12 @@ class Delegate: NSObject, CLLocationManagerDelegate {
 
 let d = Delegate()
 d.start()
-RunLoop.main.run(until: Date(timeIntervalSinceNow: 10))
+RunLoop.main.run(until: Date(timeIntervalSinceNow: timeoutSeconds))
 exit(1)
 """
+
+# rebuild the helper whenever the swift source changes
+_HELPER_VERSION = hashlib.sha1(_LOCATION_SWIFT_SRC.encode()).hexdigest()[:12]
 
 _LOCATION_INFO_PLIST = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -187,9 +210,15 @@ def _ensure_location_helper() -> Path | None:
     contents = app_dir / "Contents"
     macos = contents / "MacOS"
     binary = macos / "StormscopeLocation"
+    version_file = contents / ".swift-version"
 
-    if binary.exists():
-        return app_dir
+    # reuse the cached binary only if it was built from the current source
+    if binary.exists() and version_file.exists():
+        try:
+            if version_file.read_text().strip() == _HELPER_VERSION:
+                return app_dir
+        except OSError:
+            pass
 
     try:
         macos.mkdir(parents=True, exist_ok=True)
@@ -202,6 +231,7 @@ def _ensure_location_helper() -> Path | None:
             capture_output=True,
         )
         swift_src.unlink(missing_ok=True)
+        version_file.write_text(_HELPER_VERSION)
         logger.info("compiled CoreLocation helper at %s", app_dir)
         return app_dir
     except Exception:
@@ -209,20 +239,46 @@ def _ensure_location_helper() -> Path | None:
         return None
 
 
+# a real fix is stable, so cache it long; a miss is usually a transient cold
+# start (right after wake, before wifi positioning is ready), so cache it only
+# briefly and retry on the next call rather than pinning the whole session to
+# the coarse IP fallback.
+_CL_SUCCESS_TTL = 3600.0
+_CL_FAILURE_TTL = 120.0
+
+# must exceed the swift helper's own RunLoop budget so python doesn't kill it
+# before it can deliver a slow cold-start fix
+_CL_PROC_TIMEOUT = 35.0
+
+_cl_lock = asyncio.Lock()
 _cl_location: tuple[float, float] | None = None
-_cl_location_fetched = False
+_cl_expires: float = 0.0
 
 
 async def geolocate_corelocation() -> tuple[float, float] | None:
-    """locate via compiled macOS CoreLocation helper, cached for server lifetime."""
-    global _cl_location, _cl_location_fetched
-    if _cl_location_fetched:
+    """locate via compiled macOS CoreLocation helper.
+
+    a successful fix is cached for _CL_SUCCESS_TTL; a failure for only
+    _CL_FAILURE_TTL, so a cold-start miss self-heals on a later call instead of
+    pinning the server session to the IP fallback.
+    """
+    global _cl_location, _cl_expires
+    async with _cl_lock:
+        if time.monotonic() < _cl_expires:
+            return _cl_location
+
+        coords = await _run_location_helper()
+        _cl_location = coords
+        _cl_expires = time.monotonic() + (
+            _CL_SUCCESS_TTL if coords is not None else _CL_FAILURE_TTL
+        )
         return _cl_location
 
-    _cl_location_fetched = True
+
+async def _run_location_helper() -> tuple[float, float] | None:
+    """build and run the helper once, returning (lat, lon) or None on failure."""
     app_path = await asyncio.to_thread(_ensure_location_helper)
     if app_path is None:
-        _cl_location = None
         return None
 
     tmp_fd, tmp_path = tempfile.mkstemp(prefix="stormscope_loc_")
@@ -235,18 +291,17 @@ async def geolocate_corelocation() -> tuple[float, float] | None:
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
-        await asyncio.wait_for(proc.wait(), timeout=15.0)
+        await asyncio.wait_for(proc.wait(), timeout=_CL_PROC_TIMEOUT)
         output = Path(tmp_path).read_text().strip()
         lat_s, lon_s = output.split(",")
-        _cl_location = (round(float(lat_s), 4), round(float(lon_s), 4))
+        coords = (round(float(lat_s), 4), round(float(lon_s), 4))
         logger.info("CoreLocation: %s, %s", lat_s, lon_s)
+        return coords
     except Exception:
         logger.debug("CoreLocation geolocation failed", exc_info=True)
-        _cl_location = None
+        return None
     finally:
         Path(tmp_path).unlink(missing_ok=True)
-
-    return _cl_location
 
 
 _ip_location: tuple[float, float] | None = None

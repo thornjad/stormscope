@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.6
+
+- fix CoreLocation cold-start failures; the helper now waits for a real, accuracy-gated fix (`startUpdatingLocation`, 30s budget, transient `kCLErrorLocationUnknown` tolerated) instead of a single-shot 10s `requestLocation`
+- cache CoreLocation failures for only 120s (success for 1h) so a cold-start miss self-heals on a later call instead of pinning the session to the IP geolocation fallback
+- rebuild the compiled CoreLocation helper when its Swift source changes
+
 ## 1.4.5
 
 - fix Tempest `station_pressure` silently replacing NWS sea level pressure; Tempest station pressure is now converted to SLP via the hypsometric formula using station elevation and temperature
