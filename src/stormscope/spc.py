@@ -1,9 +1,8 @@
 """NOAA Storm Prediction Center outlook client."""
 
-import asyncio
 import logging
+import math
 
-import httpx
 from shapely.geometry import Point, shape
 
 from stormscope.base_client import BaseAPIClient
@@ -33,6 +32,38 @@ NO_RISK = ("NONE", "No severe weather risk", False)
 
 def _cache_ttl(day: int) -> float:
     return _TTL_DAY1 if day == 1 else _TTL_DAY2_3
+
+
+def _parse_probability(label: str) -> int | None:
+    """Parse an SPC probability LABEL into an integer percent.
+
+    SPC's GeoJSON encodes hazard probabilities as decimal fractions
+    ("0.02", "0.05", "0.30"); earlier products used integer percents
+    ("2", "5", "30"). The presence of a decimal point disambiguates the
+    two formats unambiguously, so a fraction is scaled by 100 and an
+    integer is taken as-is. Non-numeric labels (the CIG/SIGN intensity
+    markers) and non-finite values return None.
+    """
+    try:
+        value = float(label)
+    except (ValueError, TypeError):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    pct = value * 100 if "." in label else value
+    return round(pct)
+
+
+def _cig_rank(label: str) -> int:
+    """Numeric rank of a Conditional Intensity Group label (CIG1 -> 1).
+
+    Compared as an integer rather than lexicographically so a future
+    two-digit group (CIG10) would still rank above CIG3.
+    """
+    try:
+        return int(label[3:])
+    except (ValueError, IndexError):
+        return 0
 
 
 class SPCClient(BaseAPIClient):
@@ -140,6 +171,7 @@ class SPCClient(BaseAPIClient):
         point = Point(lon, lat)
         best_prob = 0
         significant = False
+        intensity_group = None
         valid_time = None
         expire_time = None
 
@@ -153,14 +185,26 @@ class SPCClient(BaseAPIClient):
             if not point.within(polygon):
                 continue
 
-            label = props.get("LABEL", "")
-            if label == "SIGN":
+            # a present-but-null or numeric LABEL would crash the string
+            # checks below, so coerce defensively
+            label = str(props.get("LABEL") or "")
+
+            # SPC's March 2026 outlook revamp replaced the single "SIGN"
+            # hatched area with three Conditional Intensity Groups
+            # (CIG1/CIG2/CIG3). Any group carries the old significant-severe
+            # meaning — CIG1 is the EF2+/2"+hail/65kt+ floor that SIGN marked —
+            # while CIG2/CIG3 add the higher-intensity distinction we surface
+            # via intensity_group.
+            if label == "SIGN" or label.startswith("CIG"):
                 significant = True
+                if label.startswith("CIG") and (
+                    intensity_group is None or _cig_rank(label) > _cig_rank(intensity_group)
+                ):
+                    intensity_group = label
                 continue
 
-            try:
-                prob = int(label)
-            except (ValueError, TypeError):
+            prob = _parse_probability(label)
+            if prob is None:
                 continue
             if prob > best_prob:
                 best_prob = prob
@@ -171,6 +215,7 @@ class SPCClient(BaseAPIClient):
             "hazard": hazard,
             "probability": best_prob,
             "significant": significant,
+            "intensity_group": intensity_group,
             "valid_time": valid_time,
             "expire_time": expire_time,
             "day": day,

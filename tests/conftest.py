@@ -1,8 +1,5 @@
 """Shared test fixtures and mock data."""
 
-import pytest
-
-
 MINNEAPOLIS_LAT = 44.9778
 MINNEAPOLIS_LON = -93.2650
 
@@ -335,7 +332,7 @@ MOCK_PROB_OUTLOOK = {
         {
             "type": "Feature",
             "properties": {
-                "LABEL": "5",
+                "LABEL": "0.05",
                 "VALID": "202603041200",
                 "EXPIRE": "202603051200",
             },
@@ -353,7 +350,8 @@ MOCK_PROB_OUTLOOK = {
         {
             "type": "Feature",
             "properties": {
-                "LABEL": "SIGN",
+                "LABEL": "CIG1",
+                "LABEL2": "Tornado Conditional Intensity Group 1 Risk",
                 "VALID": "202603041200",
                 "EXPIRE": "202603051200",
             },

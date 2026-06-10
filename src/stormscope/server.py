@@ -249,7 +249,11 @@ async def get_spc_outlook(
     Use when: "Severe weather risk?", "Storm outlook?", "Should I worry about storms?"
 
     outlook_type="categorical": risk level (NONE/TSTM/MRGL/SLGT/ENH/MDT/HIGH).
-    outlook_type="tornado"/"wind"/"hail": probabilistic hazard percentage + significant flag.
+    outlook_type="tornado"/"wind"/"hail": probabilistic hazard percentage,
+    significant flag, and intensity_group — the SPC Conditional Intensity
+    Group (CIG1/CIG2/CIG3, or null) marking conditional severity should the
+    hazard occur (CIG1 = significant-severe floor, CIG3 = highest tier).
+    Per-hazard probabilities cover days 1-2 only; use categorical for day 3.
 
     day: 1=today, 2=tomorrow, 3=day after.
     Omit lat/lon to use configured primary location.

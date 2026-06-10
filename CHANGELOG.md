@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.7
+
+- fix probabilistic tornado/wind/hail outlooks always returning 0% with null valid/expire times; SPC's March 2026 outlook revamp serializes probabilities as decimal fractions (`"0.05"`) and `int()` parsing skipped every feature
+- accept both decimal-fraction and legacy integer-percent probability labels
+- fix the significant-severe flag never triggering after the same revamp replaced the `SIGN` label with Conditional Intensity Groups (`CIG1`/`CIG2`/`CIG3`); any group sets `significant`, and the new `intensity_group` field surfaces the highest group at the point
+
 ## 1.4.6
 
 - fix CoreLocation cold-start failures; the helper now waits for a real, accuracy-gated fix (`startUpdatingLocation`, 30s budget, transient `kCLErrorLocationUnknown` tolerated) instead of a single-shot 10s `requestLocation`

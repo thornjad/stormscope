@@ -22,7 +22,6 @@ from tests.conftest import (
     MOCK_OBSERVATION_RESPONSE,
     MOCK_POINTS_RESPONSE,
     MOCK_RADAR_RESPONSE,
-    MOCK_SPC_OUTLOOK,
     MOCK_STATIONS_RESPONSE,
     MOCK_TEMPEST_FORECAST_RESPONSE,
     MOCK_TEMPEST_OBSERVATION_RESPONSE,
@@ -365,6 +364,7 @@ class TestGetSpcOutlook:
             "hazard": "tornado",
             "probability": 5,
             "significant": True,
+            "intensity_group": "CIG1",
             "valid_time": "202603041200",
             "expire_time": "202603051200",
             "day": 1,
@@ -378,6 +378,19 @@ class TestGetSpcOutlook:
         assert result["hazard"] == "tornado"
         assert result["probability"] == 5
         assert result["significant"] is True
+        assert result["intensity_group"] == "CIG1"
+
+    @patch("stormscope.tools._spc")
+    async def test_probabilistic_day3_rejected(self, mock_spc):
+        """Per-hazard probabilistic is days 1-2 only; day 3 returns a clear error."""
+        from stormscope.tools import get_spc_outlook
+        result = await get_spc_outlook(
+            MINNEAPOLIS_LAT, MINNEAPOLIS_LON, outlook_type="tornado", day=3,
+        )
+
+        assert "error" in result
+        assert "day 3" in result["error"]
+        mock_spc.get_spc_outlook.assert_not_called()
 
 
 class TestGetNationalOutlook:
@@ -1845,7 +1858,6 @@ class TestTempestIntegration:
     def test_merge_forecast_daily_start_time_present(self):
         """daily-mode periods include start_time (regression: was previously omitted)."""
         from stormscope.tools import _build_forecast_period
-        from stormscope.units import UnitPrefs
 
         period = {
             "name": "Today",
