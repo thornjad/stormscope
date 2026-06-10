@@ -869,6 +869,11 @@ async def get_spc_outlook(
         return {"error": f"invalid day {day}, must be 1-3"}
     if outlook_type not in _VALID_OUTLOOK_TYPES:
         return {"error": f"invalid outlook_type '{outlook_type}', must be one of: categorical, tornado, wind, hail"}
+    # SPC issues per-hazard probabilistic outlooks for days 1-2 only; day 3+
+    # is a single combined "any severe" probability. Reject the per-hazard
+    # day-3 request explicitly rather than let it 404 into a misleading 0%.
+    if outlook_type != "categorical" and day >= 3:
+        return {"error": f"SPC issues no per-hazard probabilistic {outlook_type} outlook for day {day}; per-hazard probabilities cover days 1-2 only. Use outlook_type='categorical' for day 3."}
     return await _spc.get_spc_outlook(latitude, longitude, day, outlook_type)
 
 

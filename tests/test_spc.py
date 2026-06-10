@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 
-from stormscope.spc import SPCClient, SPC_OUTLOOK_URL, SPC_PROB_URL
+from stormscope.spc import SPCClient, SPC_OUTLOOK_URL, SPC_PROB_URL, _parse_probability
 from tests.conftest import (
     MOCK_PROB_OUTLOOK,
     MOCK_SPC_OUTLOOK,
@@ -18,6 +18,29 @@ from tests.conftest import (
 @pytest.fixture
 def spc_client():
     return SPCClient()
+
+
+@pytest.mark.parametrize(
+    "label,expected",
+    [
+        ("0.02", 2),
+        ("0.05", 5),
+        ("0.10", 10),
+        ("0.60", 60),
+        ("5", 5),
+        ("30", 30),
+        ("1", 1),  # legacy integer 1% — not scaled to 100%
+        ("1.0", 100),  # decimal 1.0 — scaled like any fraction
+        ("CIG1", None),
+        ("SIGN", None),
+        ("", None),
+        ("-0.1", None),
+        ("inf", None),
+        ("nan", None),
+    ],
+)
+def test_parse_probability(label, expected):
+    assert _parse_probability(label) == expected
 
 
 @respx.mock
@@ -117,7 +140,185 @@ async def test_point_in_probabilistic_via_client(spc_client):
     assert result["hazard"] == "tornado"
     assert result["probability"] == 5
     assert result["significant"] is True
+    assert result["intensity_group"] == "CIG1"
+    # regression: valid/expire must be populated, not null (GH zero-prob bug)
+    assert result["valid_time"] == "202603041200"
+    assert result["expire_time"] == "202603051200"
     assert result["day"] == 1
+
+
+@respx.mock
+async def test_probabilistic_real_spc_fraction_format(spc_client):
+    """SPC serves probabilities as decimal fractions ("0.05"), not "5".
+
+    Regression for the live bug: int("0.05") raised ValueError, every
+    feature was skipped, and probability/valid_time came back 0/null.
+    """
+    outlook = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "LABEL": "0.02",
+                    "VALID": "202606101300",
+                    "EXPIRE": "202606111200",
+                },
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-95, 43], [-91, 43], [-91, 47], [-95, 47], [-95, 43]]],
+                },
+            },
+            {
+                "type": "Feature",
+                "properties": {
+                    "LABEL": "0.10",
+                    "VALID": "202606101300",
+                    "EXPIRE": "202606111200",
+                },
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-94, 44], [-92, 44], [-92, 46], [-94, 46], [-94, 44]]],
+                },
+            },
+        ],
+    }
+    url = SPC_PROB_URL.format(day=1, hazard="torn")
+    respx.get(url).mock(return_value=httpx.Response(200, json=outlook))
+
+    result = await spc_client.get_spc_outlook(
+        MINNEAPOLIS_LAT, MINNEAPOLIS_LON, 1, "tornado",
+    )
+
+    # Minneapolis sits inside both polygons; highest band wins.
+    assert result["probability"] == 10
+    assert result["significant"] is False
+    assert result["intensity_group"] is None
+    assert result["valid_time"] == "202606101300"
+    assert result["expire_time"] == "202606111200"
+
+
+@respx.mock
+async def test_probabilistic_legacy_integer_format(spc_client):
+    """Integer-percent labels ("5") still parse, for backward compatibility."""
+    outlook = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"LABEL": "15", "VALID": "202606101300", "EXPIRE": "202606111200"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-94, 44], [-92, 44], [-92, 46], [-94, 46], [-94, 44]]],
+                },
+            },
+        ],
+    }
+    url = SPC_PROB_URL.format(day=1, hazard="wind")
+    respx.get(url).mock(return_value=httpx.Response(200, json=outlook))
+
+    result = await spc_client.get_spc_outlook(
+        MINNEAPOLIS_LAT, MINNEAPOLIS_LON, 1, "wind",
+    )
+
+    assert result["probability"] == 15
+
+
+@respx.mock
+async def test_probabilistic_highest_cig_group_wins(spc_client):
+    """Overlapping CIG groups report the highest intensity group at the point."""
+    poly = [[[-94, 44], [-92, 44], [-92, 46], [-94, 46], [-94, 44]]]
+    outlook = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"LABEL": "CIG1", "VALID": "202606101300", "EXPIRE": "202606111200"},
+                "geometry": {"type": "Polygon", "coordinates": poly},
+            },
+            {
+                "type": "Feature",
+                "properties": {"LABEL": "CIG3", "VALID": "202606101300", "EXPIRE": "202606111200"},
+                "geometry": {"type": "Polygon", "coordinates": poly},
+            },
+        ],
+    }
+    url = SPC_PROB_URL.format(day=1, hazard="torn")
+    respx.get(url).mock(return_value=httpx.Response(200, json=outlook))
+
+    result = await spc_client.get_spc_outlook(
+        MINNEAPOLIS_LAT, MINNEAPOLIS_LON, 1, "tornado",
+    )
+
+    assert result["significant"] is True
+    assert result["intensity_group"] == "CIG3"
+
+
+@respx.mock
+async def test_probabilistic_legacy_sign_label(spc_client):
+    """The pre-2026 "SIGN" hatched label still sets significant (no CIG group)."""
+    poly = [[[-94, 44], [-92, 44], [-92, 46], [-94, 46], [-94, 44]]]
+    outlook = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"LABEL": "0.10", "VALID": "202603041200", "EXPIRE": "202603051200"},
+                "geometry": {"type": "Polygon", "coordinates": poly},
+            },
+            {
+                "type": "Feature",
+                "properties": {"LABEL": "SIGN", "VALID": "202603041200", "EXPIRE": "202603051200"},
+                "geometry": {"type": "Polygon", "coordinates": poly},
+            },
+        ],
+    }
+    url = SPC_PROB_URL.format(day=1, hazard="torn")
+    respx.get(url).mock(return_value=httpx.Response(200, json=outlook))
+
+    result = await spc_client.get_spc_outlook(
+        MINNEAPOLIS_LAT, MINNEAPOLIS_LON, 1, "tornado",
+    )
+
+    assert result["probability"] == 10
+    assert result["significant"] is True
+    assert result["intensity_group"] is None
+
+
+@respx.mock
+async def test_probabilistic_malformed_labels_do_not_crash(spc_client):
+    """A null or numeric LABEL must be skipped, not raise (regression guard)."""
+    poly = [[[-94, 44], [-92, 44], [-92, 46], [-94, 46], [-94, 44]]]
+    outlook = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"LABEL": None, "VALID": "202603041200", "EXPIRE": "202603051200"},
+                "geometry": {"type": "Polygon", "coordinates": poly},
+            },
+            {
+                "type": "Feature",
+                "properties": {"LABEL": 0.05, "VALID": "202603041200", "EXPIRE": "202603051200"},
+                "geometry": {"type": "Polygon", "coordinates": poly},
+            },
+            {
+                "type": "Feature",
+                "properties": {"LABEL": "0.15", "VALID": "202603041200", "EXPIRE": "202603051200"},
+                "geometry": {"type": "Polygon", "coordinates": poly},
+            },
+        ],
+    }
+    url = SPC_PROB_URL.format(day=1, hazard="hail")
+    respx.get(url).mock(return_value=httpx.Response(200, json=outlook))
+
+    result = await spc_client.get_spc_outlook(
+        MINNEAPOLIS_LAT, MINNEAPOLIS_LON, 1, "hail",
+    )
+
+    # null is skipped, the numeric coerces to "0.05" (5%), "0.15" wins at 15%
+    assert result["probability"] == 15
+    assert result["significant"] is False
 
 
 @respx.mock
