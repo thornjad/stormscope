@@ -145,6 +145,8 @@ class TestGetConditions:
         result = await get_conditions(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
 
         assert result["pressure"] == "29.92 inHg"
+        # station pressure must not be mislabeled as sea level
+        assert result["pressure_source"] == "station"
 
     @patch("stormscope.tools._nws")
     async def test_error_for_non_us(self, mock_nws):

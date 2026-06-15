@@ -625,7 +625,13 @@ async def get_conditions(
         gust_kmh = _obs_value(obs, "windGust")
         humidity = _obs_value(obs, "relativeHumidity")
         vis_m = _obs_value(obs, "visibility")
-        pressure_pa = _obs_value(obs, "seaLevelPressure") or _obs_value(obs, "barometricPressure")
+        # seaLevelPressure is reduced to sea level; barometricPressure is the
+        # absolute station pressure, so it must not be labeled sea_level
+        slp_pa = _obs_value(obs, "seaLevelPressure")
+        if slp_pa is not None:
+            pressure_pa, pressure_source = slp_pa, "sea_level"
+        else:
+            pressure_pa, pressure_source = _obs_value(obs, "barometricPressure"), "station"
 
         temp_f = c_to_f(temp_c)
         feels_like_c = heat_index_c if heat_index_c is not None else wind_chill_c
@@ -651,7 +657,7 @@ async def get_conditions(
             "sky_condition": obs.get("textDescription", "N/A"),
             "visibility": _fmt_visibility(m_to_miles(vis_m), vis_m, prefs),
             "pressure": _fmt_pressure(pa_to_inhg(pressure_pa), pressure_pa, prefs),
-            "pressure_source": "sea_level",
+            "pressure_source": pressure_source,
             "station_name": station.get("name", "Unknown"),
             "observation_time": obs.get("timestamp", "N/A"),
         }
