@@ -161,6 +161,20 @@ def _merge_tempest_conditions(
         f_val = feels_n if prefs.temperature == "f" else None
         c_val = feels_n if prefs.temperature == "c" else None
         result["feels_like"] = _fmt_temp(f_val, c_val, prefs)
+
+    dew_n = normalized.get("dew_point")
+    if dew_n is not None:
+        # raw obs dew_point is °C (API is SI); use it for the frost-point
+        # threshold so labeling matches the NWS path regardless of prefs
+        dew_c = obs.get("dew_point")
+        dp_key = "frost_point" if dew_c is not None and dew_c <= 0 else "dewpoint"
+        f_val = dew_n if prefs.temperature == "f" else None
+        c_val = dew_n if prefs.temperature == "c" else None
+        result[dp_key] = _fmt_temp(f_val, c_val, prefs)
+        # the NWS path set exactly one of these; drop the other so the
+        # merged result never carries both labels
+        result.pop("frost_point" if dp_key == "dewpoint" else "dewpoint", None)
+
     humidity = normalized.get("relative_humidity")
     if humidity is not None:
         result["humidity"] = _fmt_humidity(humidity)

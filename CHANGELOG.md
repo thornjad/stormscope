@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.8
+
+- fix dew point reporting `N/A` when the NWS METAR omits it but a Tempest station is active; `_merge_tempest_conditions` now backfills dew point from the Tempest `dew_point` field, with frost-point labeling at and below 0°C to match the NWS path
+
 ## 1.4.7
 
 - fix probabilistic tornado/wind/hail outlooks always returning 0% with null valid/expire times; SPC's March 2026 outlook revamp serializes probabilities as decimal fractions (`"0.05"`) and `int()` parsing skipped every feature

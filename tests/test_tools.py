@@ -1756,6 +1756,86 @@ class TestTempestIntegration:
         inhg_val = float(result["pressure"].split()[0])
         assert 29.8 <= inhg_val <= 30.1, f"expected ~29.92 inHg, got {result['pressure']}"
 
+    def test_merge_conditions_backfills_dewpoint_from_tempest(self):
+        """Tempest dew_point fills the field when the NWS METAR omits it."""
+        from stormscope.tempest import TempestClient
+        from stormscope.tools import _merge_tempest_conditions
+
+        client = TempestClient(token="test")
+        obs = {"air_temperature": 18.9, "dew_point": 9.9}  # 9.9°C → ~50°F
+        nws_result = {"temperature": "66°F", "dewpoint": "N/A"}
+
+        import stormscope.tools as tools_mod
+        orig = tools_mod._tempest
+        tools_mod._tempest = client
+        try:
+            result = _merge_tempest_conditions(nws_result, obs, US_PREFS)
+        finally:
+            tools_mod._tempest = orig
+
+        assert result["dewpoint"] == "50°F"
+        assert "frost_point" not in result
+
+    def test_merge_conditions_dewpoint_metric_prefs(self):
+        """Dew point is formatted in °C under SI prefs."""
+        from stormscope.tempest import TempestClient
+        from stormscope.tools import _merge_tempest_conditions
+
+        client = TempestClient(token="test")
+        obs = {"air_temperature": 18.9, "dew_point": 9.9}  # already °C
+        nws_result = {"temperature": "19°C", "dewpoint": "N/A"}
+
+        import stormscope.tools as tools_mod
+        orig = tools_mod._tempest
+        tools_mod._tempest = client
+        try:
+            result = _merge_tempest_conditions(nws_result, obs, SI_PREFS)
+        finally:
+            tools_mod._tempest = orig
+
+        assert result["dewpoint"] == "10°C"
+        assert "frost_point" not in result
+
+    def test_merge_conditions_dewpoint_frost_point_labeling(self):
+        """A sub-zero Tempest dew point is labeled frost_point, not dewpoint."""
+        from stormscope.tempest import TempestClient
+        from stormscope.tools import _merge_tempest_conditions
+
+        client = TempestClient(token="test")
+        obs = {"air_temperature": 2.0, "dew_point": -3.0}  # -3°C → ~27°F
+        nws_result = {"temperature": "36°F", "dewpoint": "N/A"}
+
+        import stormscope.tools as tools_mod
+        orig = tools_mod._tempest
+        tools_mod._tempest = client
+        try:
+            result = _merge_tempest_conditions(nws_result, obs, US_PREFS)
+        finally:
+            tools_mod._tempest = orig
+
+        assert result["frost_point"] == "27°F"
+        assert "dewpoint" not in result
+
+    def test_merge_conditions_dewpoint_clears_stale_nws_frost_point(self):
+        """A positive Tempest dew point clears a frost_point the NWS path set."""
+        from stormscope.tempest import TempestClient
+        from stormscope.tools import _merge_tempest_conditions
+
+        client = TempestClient(token="test")
+        obs = {"air_temperature": 18.9, "dew_point": 9.9}
+        nws_result = {"temperature": "66°F", "frost_point": "28°F"}
+
+        import stormscope.tools as tools_mod
+        orig = tools_mod._tempest
+        tools_mod._tempest = client
+        try:
+            result = _merge_tempest_conditions(nws_result, obs, US_PREFS)
+        finally:
+            tools_mod._tempest = orig
+
+        assert result["dewpoint"] == "50°F"
+        assert "frost_point" not in result
+
     def test_merge_forecast_no_tempest_hourly_key(self):
         """S2: _merge_tempest_forecast must not leak _tempest_hourly into output."""
         from stormscope.tools import _merge_tempest_forecast
