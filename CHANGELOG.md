@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.8
+
+- fix dew point reporting `N/A` when the NWS METAR omits it but a Tempest station is active; `_merge_tempest_conditions` now backfills dew point from the Tempest `dew_point` field, with frost-point labeling at and below 0°C to match the NWS path
+- make the Tempest station the primary source for every field it measures in current conditions: `wind_gust` now comes from Tempest (was NWS-only), and `observation_time` reflects the Tempest reading time rather than the NWS METAR time
+- use the Tempest station's own `sea_level_pressure` directly (`pressure_source: tempest`) rather than reducing station pressure locally; the local hypsometric reduction was an approximation that disagreed with the station's value by ~1 mb, and is now a fallback used only when the station supplies no SLP. Also fixes that fallback never running: station elevation is read from `station_meta.elevation`, not the absent top-level `elevation` key
+- add Tempest hyper-local fields to conditions: `wind_lull`, `brightness`, `wet_bulb_globe_temperature`, `delta_t` (°C), `precip_last_hour`, and last-strike distance (shown only when there has been recent lightning)
+- stop labeling NWS station pressure as sea-level when a METAR reports no sea-level pressure; `pressure_source` is now `station` in that case instead of presenting absolute station pressure as SLP
+
 ## 1.4.7
 
 - fix probabilistic tornado/wind/hail outlooks always returning 0% with null valid/expire times; SPC's March 2026 outlook revamp serializes probabilities as decimal fractions (`"0.05"`) and `int()` parsing skipped every feature
