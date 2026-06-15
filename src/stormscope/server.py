@@ -50,9 +50,12 @@ mcp = FastMCP(
         "sectors, surface lows/highs, or synoptic surface patterns. Returns "
         "distance and bearing to nearby fronts and pressure centers, plus "
         "warm/cold sector detection relative to the nearest cold front.\n\n"
-        "When a Tempest weather station is configured, get_conditions includes "
-        "hyper-local sensor data from the user's personal station: solar_radiation, "
-        "uv_index, lightning_strikes_1hr, air_density, and wet_bulb_temperature. "
+        "When a Tempest weather station is configured, it is the primary source "
+        "for every field it measures and get_conditions adds hyper-local sensor "
+        "data from the user's personal station: solar_radiation, uv_index, "
+        "brightness, lightning_strikes_1hr, last-strike distance (when recent), "
+        "air_density, wet_bulb_temperature, wet_bulb_globe_temperature, delta_t, "
+        "precip_last_hour, wind_lull. "
         "The data_source field indicates whether primary readings (temperature, "
         "wind) come from the Tempest station or NWS. All pressure values are sea "
         "level pressure. The pressure_source field is 'tempest_slp' when Tempest "
@@ -139,8 +142,15 @@ async def get_conditions(
     Use when: "What's the weather right now?", "How hot is it?", "Is it windy?"
 
     detail="standard": temperature, feels-like, dewpoint (or frost_point when <= 0C),
-    humidity, wind, sky, visibility, pressure.
+    humidity, wind, gust, sky, visibility, pressure.
     detail="full": adds cloud layers, present weather, raw METAR.
+
+    When a Tempest station is in range it is the primary source for every
+    field it measures (temperature, feels-like, dewpoint, humidity, wind,
+    gust, lull, pressure, observation_time) and adds hyper-local fields:
+    solar_radiation, uv_index, brightness, lightning_strikes_1hr, last-strike
+    distance (when recent), air_density, wet_bulb_temperature,
+    wet_bulb_globe_temperature, delta_t (°C), precip_last_hour, pressure_trend.
 
     Omit lat/lon to use configured primary location.
 

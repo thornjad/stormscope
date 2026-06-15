@@ -193,7 +193,8 @@ class TempestClient(BaseAPIClient):
         wind_unit = "mps"
 
         # normalize temperature fields
-        for field in ("air_temperature", "wet_bulb_temperature", "feels_like",
+        for field in ("air_temperature", "wet_bulb_temperature",
+                      "wet_bulb_globe_temperature", "feels_like",
                       "dew_point", "air_temperature_high", "air_temperature_low"):
             val = obs.get(field)
             if val is None:

@@ -1836,6 +1836,81 @@ class TestTempestIntegration:
         assert result["dewpoint"] == "50°F"
         assert "frost_point" not in result
 
+    def _merge(self, obs, nws_result, prefs=US_PREFS):
+        from stormscope.tempest import TempestClient
+        from stormscope.tools import _merge_tempest_conditions
+        import stormscope.tools as tools_mod
+        orig = tools_mod._tempest
+        tools_mod._tempest = TempestClient(token="test")
+        try:
+            return _merge_tempest_conditions(nws_result, obs, prefs)
+        finally:
+            tools_mod._tempest = orig
+
+    def test_merge_conditions_wind_gust_and_lull(self):
+        """wind_gust comes from Tempest (primary); wind_lull is added."""
+        obs = {"wind_gust": 10.0, "wind_lull": 0.5}  # m/s
+        result = self._merge(obs, {"wind_gust": "5 mph"})
+        assert result["wind_gust"] == "22 mph"  # 10 m/s, from Tempest not NWS
+        assert result["wind_lull"] == "1 mph"
+
+    def test_merge_conditions_tempest_only_fields(self):
+        """WBGT, brightness, delta-T, and last-hour precip are surfaced."""
+        obs = {
+            "wet_bulb_globe_temperature": 18.1,  # °C → ~65°F
+            "brightness": 68771,
+            "delta_t": 5.6,
+            "precip_accum_last_1hr": 2.5,  # mm
+        }
+        result = self._merge(obs, {})
+        assert result["wet_bulb_globe_temperature"] == "65°F"
+        assert result["brightness"] == "68771 lux"
+        assert result["delta_t"] == "5.6°C"  # always °C by convention
+        assert result["precip_last_hour"] == "0.10 in"
+
+        # WBGT honors metric prefs; delta_t stays °C regardless
+        si = self._merge(
+            {"wet_bulb_globe_temperature": 18.1, "delta_t": 5.6}, {}, prefs=SI_PREFS,
+        )
+        assert si["wet_bulb_globe_temperature"] == "18°C"
+        assert si["delta_t"] == "5.6°C"
+
+    def test_merge_conditions_observation_time_from_tempest(self):
+        """observation_time reflects the Tempest reading, not the NWS METAR."""
+        obs = {"timestamp": 1700000000, "air_temperature": 20.0}
+        result = self._merge(obs, {"observation_time": "2026-01-01T00:00:00+00:00"})
+        assert result["observation_time"] == "2023-11-14T22:13:20+00:00"
+
+    def test_merge_conditions_lightning_distance_gated(self):
+        """Last-strike distance shows only with recent strikes, else is omitted."""
+        recent = self._merge(
+            {"lightning_strike_count_last_3hr": 3, "lightning_strike_last_distance": 8},
+            {},
+        )
+        assert recent["lightning_last_strike_distance"] == "5.0 mi"
+
+        stale = self._merge(
+            {"lightning_strike_count_last_3hr": 0, "lightning_strike_last_distance": 8},
+            {},
+        )
+        assert "lightning_last_strike_distance" not in stale
+
+    @patch("stormscope.tools._get_tempest_station", new_callable=AsyncMock)
+    @patch("stormscope.tools._tempest")
+    async def test_fetch_tempest_obs_sources_elevation_from_meta(self, mock_tempest, mock_station):
+        """station elevation lives under station_meta; without this SLP never computes."""
+        mock_station.return_value = {
+            "station_id": 1,
+            "name": "Test",
+            "station_meta": {"elevation": 285.0},
+        }
+        mock_tempest.get_observations = AsyncMock(return_value={"air_temperature": 20.0})
+
+        from stormscope.tools import _fetch_tempest_obs
+        obs = await _fetch_tempest_obs(44.9, -93.2)
+
+        assert obs["station_elevation"] == 285.0
+
     def test_merge_forecast_no_tempest_hourly_key(self):
         """S2: _merge_tempest_forecast must not leak _tempest_hourly into output."""
         from stormscope.tools import _merge_tempest_forecast

@@ -3,6 +3,9 @@
 ## 1.4.8
 
 - fix dew point reporting `N/A` when the NWS METAR omits it but a Tempest station is active; `_merge_tempest_conditions` now backfills dew point from the Tempest `dew_point` field, with frost-point labeling at and below 0°C to match the NWS path
+- make the Tempest station the primary source for every field it measures in current conditions: `wind_gust` now comes from Tempest (was NWS-only), and `observation_time` reflects the Tempest reading time rather than the NWS METAR time
+- fix sea-level pressure silently never computing from Tempest data; station elevation is read from `station_meta.elevation` (the top-level `elevation` key is absent), so `pressure_source` is now `tempest_slp` instead of falling back to NWS
+- add Tempest hyper-local fields to conditions: `wind_lull`, `brightness`, `wet_bulb_globe_temperature`, `delta_t` (°C), `precip_last_hour`, and last-strike distance (shown only when there has been recent lightning)
 
 ## 1.4.7
 

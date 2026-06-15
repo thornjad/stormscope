@@ -113,9 +113,22 @@ def _merge_tempest_conditions(
     if uv is not None:
         result["uv_index"] = round(uv, 1)
 
+    brightness = normalized.get("brightness")
+    if brightness is not None:
+        result["brightness"] = f"{round(brightness)} lux"
+
     lightning = normalized.get("lightning_strike_count_last_1hr") or normalized.get("lightning_strike_count")
     if lightning is not None:
         result["lightning_strikes_1hr"] = int(lightning)
+
+    # only surface last-strike distance when there has been recent activity,
+    # otherwise the value is stale (last strike could be days old)
+    strikes_3hr = obs.get("lightning_strike_count_last_3hr") or 0
+    last_dist_km = obs.get("lightning_strike_last_distance")
+    if strikes_3hr and last_dist_km is not None:
+        result["lightning_last_strike_distance"] = _fmt_visibility(
+            last_dist_km * 0.621371, last_dist_km * 1000, prefs,
+        )
 
     air_density = normalized.get("air_density")
     if air_density is not None:
@@ -128,6 +141,18 @@ def _merge_tempest_conditions(
         c_val = wet_bulb_n if prefs.temperature == "c" else None
         result["wet_bulb_temperature"] = _fmt_temp(f_val, c_val, prefs)
 
+    wbgt_n = normalized.get("wet_bulb_globe_temperature")
+    if wbgt_n is not None:
+        f_val = wbgt_n if prefs.temperature == "f" else None
+        c_val = wbgt_n if prefs.temperature == "c" else None
+        result["wet_bulb_globe_temperature"] = _fmt_temp(f_val, c_val, prefs)
+
+    # delta-T (dry-bulb minus wet-bulb) is an agronomy spray metric defined
+    # in °C by convention, so it is reported in °C regardless of prefs
+    delta_t = obs.get("delta_t")
+    if delta_t is not None:
+        result["delta_t"] = f"{round(delta_t, 1)}°C"
+
     trend = normalized.get("pressure_trend")
     if trend is not None:
         result["pressure_trend"] = trend
@@ -139,6 +164,12 @@ def _merge_tempest_conditions(
     # Tempest values are always preferred when the station is within range;
     # normalized values are already in prefs units
     result["data_source"] = "tempest"
+
+    # the displayed readings are now the Tempest station's, so the timestamp
+    # should reflect the Tempest observation, not the NWS METAR time
+    ts = obs.get("timestamp")
+    if ts is not None:
+        result["observation_time"] = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
     temp_n = normalized.get("air_temperature")
     if temp_n is not None:
@@ -185,6 +216,20 @@ def _merge_tempest_conditions(
         result["wind"] = _fmt_wind(wind_n, cardinal, prefs)
         if "wind_direction" in result:
             result["wind_direction"] = cardinal or "N/A"
+
+    gust_n = normalized.get("wind_gust")
+    if gust_n is not None:
+        result["wind_gust"] = _fmt_gust(gust_n, prefs)
+
+    lull_n = normalized.get("wind_lull")
+    if lull_n is not None:
+        result["wind_lull"] = _fmt_gust(lull_n, prefs)
+
+    # last-hour precipitation accumulation; raw obs value is mm (API is SI)
+    precip_mm = obs.get("precip_accum_last_1hr")
+    if precip_mm is not None:
+        result["precip_last_hour"] = _fmt_accumulation(precip_mm, prefs)
+
     station_press_mb = obs.get("station_pressure")
     elevation_m = obs.get("station_elevation")
     air_temp_c = obs.get("air_temperature")
@@ -529,7 +574,10 @@ async def _fetch_tempest_obs(lat: float, lon: float) -> dict | None:
             return None
         # attach station name for display
         obs["station_name"] = station.get("name") or station.get("public_name")
-        obs["station_elevation"] = station.get("elevation")
+        # elevation lives under station_meta; the top-level key is absent, so
+        # without this the SLP computation silently never ran
+        meta_elev = (station.get("station_meta") or {}).get("elevation")
+        obs["station_elevation"] = meta_elev if meta_elev is not None else station.get("elevation")
         return obs
     except Exception:
         logger.debug("tempest observation fetch failed", exc_info=True)
