@@ -1911,6 +1911,26 @@ class TestTempestIntegration:
 
         assert obs["station_elevation"] == 285.0
 
+    def test_merge_conditions_pressure_prefers_tempest_slp(self):
+        """The station's own sea_level_pressure is used directly (source 'tempest')."""
+        obs = {
+            "sea_level_pressure": 1013.2,
+            "station_pressure": 979.2,
+            "station_elevation": 285.0,
+            "air_temperature": 19.8,
+        }
+        result = self._merge(obs, {"pressure": "29.00 inHg", "pressure_source": "sea_level"})
+        assert result["pressure_source"] == "tempest"
+        assert result["pressure"] == "29.92 inHg"  # 1013.2 mb
+
+    def test_merge_conditions_pressure_computes_only_as_fallback(self):
+        """With no station SLP, fall back to the local reduction (source 'tempest_slp')."""
+        obs = {"station_pressure": 979.2, "station_elevation": 285.0, "air_temperature": 19.8}
+        result = self._merge(obs, {"pressure": "29.00 inHg", "pressure_source": "sea_level"})
+        assert result["pressure_source"] == "tempest_slp"
+        # locally reduced value, distinct from the NWS 29.00 it replaced
+        assert result["pressure"] == "29.89 inHg"
+
     def test_merge_forecast_no_tempest_hourly_key(self):
         """S2: _merge_tempest_forecast must not leak _tempest_hourly into output."""
         from stormscope.tools import _merge_tempest_forecast

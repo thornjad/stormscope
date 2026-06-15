@@ -230,15 +230,24 @@ def _merge_tempest_conditions(
     if precip_mm is not None:
         result["precip_last_hour"] = _fmt_accumulation(precip_mm, prefs)
 
-    station_press_mb = obs.get("station_pressure")
-    elevation_m = obs.get("station_elevation")
-    air_temp_c = obs.get("air_temperature")
-
-    if station_press_mb is not None and elevation_m is not None and air_temp_c is not None:
-        slp_mb = station_pressure_to_slp_mb(station_press_mb, elevation_m, air_temp_c)
+    # Tempest reports its own sea-level pressure, reduced with the proper
+    # (mean-column-temperature) method, so prefer it. Reduce station pressure
+    # ourselves only when the station does not supply SLP directly: our
+    # instantaneous-temperature reduction is an approximation that can differ
+    # from the official value by ~1 mb.
+    slp_mb = obs.get("sea_level_pressure")
+    source = "tempest"
+    if slp_mb is None:
+        station_press_mb = obs.get("station_pressure")
+        elevation_m = obs.get("station_elevation")
+        air_temp_c = obs.get("air_temperature")
+        if station_press_mb is not None and elevation_m is not None and air_temp_c is not None:
+            slp_mb = station_pressure_to_slp_mb(station_press_mb, elevation_m, air_temp_c)
+            source = "tempest_slp"
+    if slp_mb is not None:
         slp_pa = slp_mb * 100
         result["pressure"] = _fmt_pressure(pa_to_inhg(slp_pa), slp_pa, prefs)
-        result["pressure_source"] = "tempest_slp"
+        result["pressure_source"] = source
 
     return result
 
