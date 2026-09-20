@@ -2,22 +2,21 @@
 
 Real-time US weather data for AI assistants via MCP. Uses the NWS API, NOAA Storm Prediction Center data, NOAA Weather Prediction Center surface analysis, Iowa Environmental Mesonet radar and radiosonde soundings, and Open-Meteo pressure-level model data. Optionally uses data from your Tempest personal weather station.
 
-**US locations only**. Covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return a clear error. The SPC national outlook covers the contiguous US only.
+**US locations only**. Covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return an error. The SPC national outlook covers the contiguous US only.
 
 ## What it does
 
-Most tools support a `detail` parameter: **standard** gives a clean summary, **full** adds the technical depth (METAR, VTEC codes, polygon geometry, probabilistic outlooks).
+Most tools support a `detail` parameter. Standard gives a clean summary, and full adds more nerd stuff (METAR, VTEC codes, polygon geometry, probabilistic outlooks).
 
 - Current conditions: temperature, wind, humidity, sky, pressure
-- Forecast in daily narrative periods, hourly, or raw gridpoint time-value series
+- Forecast in daily periods, hourly, or raw gridpoint time-value series
 - Active weather alerts with severity filtering
 - SPC severe weather outlook, both categorical risk and probabilistic tornado/wind/hail
 - National severe outlook with human-readable region descriptions
 - NEXRAD radar station metadata and imagery URLs
-- 500mb upper-air analysis: geopotential heights, temperature, wind, and derived vorticity (synoptic-scale resolution from a 5-point finite-difference grid — useful for identifying troughs, ridges, and jet stream patterns, but not mesoscale features)
+- 500mb upper-air analysis: geopotential heights, temperature, wind, and derived vorticity (synoptic-scale resolution from a 5-point finite-difference grid, useful for identifying troughs, ridges, and jet stream patterns but not mesoscale features)
 - Soundings: the latest observed radiosonde from the nearest launch site (with its distance and direction from you) or a model profile at your exact location, with CAPE/CIN, LCL, freezing level, lapse rates, precipitable water, bulk shear, storm-relative helicity, and temperature inversions
 - Surface analysis: fronts, pressure centers (highs/lows), and warm/cold sector detection relative to the nearest cold front
-- Combined briefing that pulls everything together and adapts to the situation
 
 ## Installation
 
@@ -53,7 +52,7 @@ Or add to your Claude Code MCP config:
 | `UNITS`                        | `us`    | Unit system (`us` or `si`)                                                             |
 | `ENABLE_CORELOCATION`          | `false` | Set to `true` to enable macOS CoreLocation (requires Xcode Command Line Tools)         |
 | `DISABLE_AUTO_GEOLOCATION`     | `false` | Set to `true` to disable CoreLocation and IP geolocation                               |
-| `TEMPEST_TOKEN`                | none    | Tempest Personal Access Token — enables Tempest station integration                    |
+| `TEMPEST_TOKEN`                | none    | Tempest Personal Access Token, enables Tempest station integration                     |
 | `TEMPEST_STATION_ID`           | none    | Explicit station ID to use (optional, see [Tempest station](#tempest-weather-station)) |
 | `TEMPEST_STATION_NAME`         | none    | Station name to match instead of ID (optional)                                         |
 | `USE_TEMPEST_STATION_GEOLOCATION` | `false` | Use Tempest station coordinates as the primary location                                |
@@ -62,11 +61,11 @@ Or add to your Claude Code MCP config:
 
 All location-aware tools accept optional `latitude` and `longitude` parameters. When omitted, the server resolves location through a fallback chain:
 
-1. **Explicit `latitude`/`longitude` params** — the AI can pass coordinates for any location
-2. **Tempest station location** (opt-in) — set `USE_TEMPEST_STATION_GEOLOCATION=true` with a configured station to use its coordinates
-3. **`PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE` env vars** — precise, recommended for your home location
-4. **macOS CoreLocation** (opt-in) — set `ENABLE_CORELOCATION=true`, requires Xcode Command Line Tools, ~100m WiFi-based accuracy, prompts for location permission on first use. Compiles a small Swift helper into `~/Library/Application Support/stormscope/`
-5. **IP geolocation** via [ipinfo.io](https://ipinfo.io) — automatic, city-level accuracy, one request per session
+1. **Explicit `latitude`/`longitude` params**. The AI can pass coordinates for any location
+2. **Tempest station location** (opt-in). Set `USE_TEMPEST_STATION_GEOLOCATION=true` with a configured station to use its coordinates
+3. **`PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE` env vars**. These are precise and recommended for your home location
+4. **macOS CoreLocation** (opt-in). Set `ENABLE_CORELOCATION=true` to use it. It requires Xcode Command Line Tools, has ~100m WiFi-based accuracy, and prompts for location permission on first use. Compiles a small Swift helper into `~/Library/Application Support/stormscope/`
+5. **IP geolocation** via [ipinfo.io](https://ipinfo.io). This is automatic, with city-level accuracy and one request per session
 
 Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geolocation (tiers 4 and 5). With auto-geolocation disabled and no env vars or explicit params, tools return an error.
 
@@ -74,9 +73,9 @@ Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geoloc
 
 If you have a [Tempest](https://tempest.earth/tempest-home-weather-system/) personal weather station, StormScope can enrich NWS data with hyper-local sensor readings that NWS cannot provide: solar radiation, UV index, lightning strike counts, air density, and wet bulb temperature. Tempest also supplies sunrise/sunset times in its forecast, which are added to `get_forecast` output.
 
-**Tempest data supplements NWS, it doesn't replace it.** NWS provides authoritative alert text, detailed narrative forecasts, and broad coverage. Tempest provides hyper-local precision at your exact station location. When a Tempest station is within range, StormScope uses Tempest values for temperature, feels-like, humidity, wind, and pressure, and sets `data_source: "tempest"` in the response.
+**Tempest data supplements NWS.** NWS provides authoritative alert text, detailed narrative forecasts, and broad coverage, while Tempest provides hyper-local precision at your exact station location. When a Tempest station is within range, StormScope uses Tempest values for temperature, feels-like, humidity, wind, and pressure, and sets `data_source: "tempest"` in the response.
 
-If the Tempest API is unavailable, all tools fall back to NWS data without error.
+If the Tempest API is unavailable, all tools fall back to NWS data.
 
 ### Setup
 
@@ -120,9 +119,9 @@ When `TEMPEST_STATION_ID` is not set, StormScope auto-discovers the nearest stat
 
 All location-aware tools accept optional `latitude`/`longitude`, falling back to the configured location (see [Location detection](#location-detection)).
 
-Upper-air data provided by [Open-Meteo](https://open-meteo.com/) under CC-BY 4.0. Vorticity is derived from model wind fields at ~110km grid spacing — this captures synoptic-scale features (shortwave troughs, jet maxima) but not mesoscale detail.
+Upper-air data provided by [Open-Meteo](https://open-meteo.com/) under CC-BY 4.0. Vorticity is derived from model wind fields at ~110km grid spacing, which captures synoptic-scale features (shortwave troughs, jet maxima) but not mesoscale detail.
 
-Soundings come from the NWS radiosonde network via IEM, launched around 00Z and 12Z from roughly 85 US sites, so the nearest site can be hundreds of kilometers away and up to 12 hours old. `get_sounding` with `source=observed` reports the site's distance and bearing from you and adds a note when it is far or old. Use `source=model` for a profile at your exact location or a forecast hour (up to 48). Both report surface-based CAPE/CIN, LCL/LFC/EL, freezing level, lapse rates, precipitable water, 0-1 and 0-6 km bulk shear, 0-1 and 0-3 km storm-relative helicity, and temperature inversions below ~5 km. Index calculations use [MetPy](https://unidata.github.io/MetPy/).
+Soundings come from the NWS radiosonde network via IEM from roughly 85 US sites, so the nearest site can be hundreds of kilometers away and up to 12 hours old. `get_sounding` with `source=observed` reports the site's distance and bearing from you and adds a note when it is far or old. Use `source=model` for a profile at your exact location or a forecast hour (up to 48). Both report surface-based CAPE/CIN, LCL/LFC/EL, freezing level, lapse rates, precipitable water, 0-1 and 0-6 km bulk shear, 0-1 and 0-3 km storm-relative helicity, and temperature inversions below ~5 km. Index calculations use [MetPy](https://unidata.github.io/MetPy/).
 
 ### Example conversation
 
@@ -148,15 +147,6 @@ National: SLGT risk in central Oklahoma, MRGL in northern Texas
 Radar: KMPX, latest scan 12:00Z, N0B/N0S available
 Day 2: TSTM, Day 3: NONE
 ```
-
-## Skill suggestions
-
-Create `.claude/skills/` skills for common patterns:
-
-- **Morning briefing**: `get_briefing detail=full` for a full picture to start the day
-- **Quick check**: `get_conditions` for just current conditions
-- **Evening review**: `get_forecast mode=daily days=2` for tonight and tomorrow
-- **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_surface_analysis` + `get_upper_air` + `get_sounding` + `get_radar` + `get_alerts detail=full`
 
 ## Using from scripts
 
@@ -195,22 +185,22 @@ Each run starts a fresh process, so the response cache starts empty and importin
 
 StormScope aggregates data from several upstream services. None of these services require authentication or API keys.
 
-**National Weather Service (NWS)** — [api.weather.gov](https://api.weather.gov) ([terms](https://www.weather.gov/disclaimer))
+**National Weather Service (NWS)** at [api.weather.gov](https://api.weather.gov) ([terms](https://www.weather.gov/disclaimer))
 Conditions, forecasts, alerts, and gridpoint data. NWS data is produced by the US federal government and is in the public domain under [17 U.S.C. § 105](https://www.law.cornell.edu/uscode/text/17/105). Use of NWS data does not imply NOAA or NWS endorsement of this project.
 
-**NOAA Storm Prediction Center (SPC)** — [spc.noaa.gov](https://www.spc.noaa.gov) ([terms](https://www.weather.gov/disclaimer))
+**NOAA Storm Prediction Center (SPC)** at [spc.noaa.gov](https://www.spc.noaa.gov) ([terms](https://www.weather.gov/disclaimer))
 Categorical and probabilistic severe weather outlooks (days 1-3). SPC data is US government public domain under the same statute as NWS.
 
-**NOAA Weather Prediction Center (WPC)** — [mapservices.weather.noaa.gov](https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/natl_fcst_wx_chart/MapServer)
+**NOAA Weather Prediction Center (WPC)** at [mapservices.weather.noaa.gov](https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/natl_fcst_wx_chart/MapServer)
 Surface analysis charts with fronts and pressure centers (days 1-3). WPC data is US government public domain under the same statute as NWS. Analysis charts are updated approximately 4 times per day. No pressure values are provided for H/L centers.
 
-**Iowa Environmental Mesonet (IEM)** — [mesonet.agron.iastate.edu](https://mesonet.agron.iastate.edu) ([disclaimer](https://mesonet.agron.iastate.edu/disclaimer.php))
+**Iowa Environmental Mesonet (IEM)** at [mesonet.agron.iastate.edu](https://mesonet.agron.iastate.edu) ([disclaimer](https://mesonet.agron.iastate.edu/disclaimer.php))
 NEXRAD radar station metadata and imagery, plus radiosonde (weather balloon) sounding data from the NWS upper-air network. IEM data is in the public domain and may be used freely by anyone for any lawful purpose. Data provided by the Iowa Environmental Mesonet of Iowa State University.
 
-**Open-Meteo** — [open-meteo.com](https://open-meteo.com) ([terms](https://open-meteo.com/en/terms))
+**Open-Meteo** at [open-meteo.com](https://open-meteo.com) ([terms](https://open-meteo.com/en/terms))
 500mb upper-air pressure-level data (geopotential heights, temperature, wind) and model soundings. Provided under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/). StormScope uses the free non-commercial tier and does not support paid Open-Meteo subscriptions.
 
-**ipinfo.io** — [ipinfo.io](https://ipinfo.io) ([terms](https://ipinfo.io/terms-of-service))
+**ipinfo.io** at [ipinfo.io](https://ipinfo.io) ([terms](https://ipinfo.io/terms-of-service))
 IP-based geolocation, used only as a last-resort fallback when no coordinates are configured and CoreLocation is unavailable. One request per server session. StormScope uses the free tier of this service and does not resell or redistribute the geolocation data. Set `DISABLE_AUTO_GEOLOCATION=true` to prevent this request entirely.
 
 All upstream services provide data without warranty of accuracy or availability. StormScope caches responses to reduce request volume but cannot guarantee data freshness. Users of StormScope are responsible for complying with each service's terms of use. The authors of StormScope are not liable for how others use this software or the upstream APIs it connects to.
