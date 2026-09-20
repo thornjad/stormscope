@@ -64,7 +64,7 @@ All location-aware tools accept optional `latitude` and `longitude` parameters. 
 1. **Explicit `latitude`/`longitude` params**. The AI can pass coordinates for any location
 2. **Tempest station location** (opt-in). Set `USE_TEMPEST_STATION_GEOLOCATION=true` with a configured station to use its coordinates
 3. **`PRIMARY_LATITUDE`/`PRIMARY_LONGITUDE` env vars**. These are precise and recommended for your home location
-4. **macOS CoreLocation** (opt-in). Set `ENABLE_CORELOCATION=true` to use it. It requires Xcode Command Line Tools, has ~100m WiFi-based accuracy, and prompts for location permission on first use. It compiles a small Swift helper into `~/Library/Application Support/stormscope/`
+4. **macOS CoreLocation** (opt-in). Set `ENABLE_CORELOCATION=true` to use it. It requires Xcode Command Line Tools, has ~100m WiFi-based accuracy, and prompts for location permission on first use. Compiles a small Swift helper into `~/Library/Application Support/stormscope/`
 5. **IP geolocation** via [ipinfo.io](https://ipinfo.io). This is automatic, with city-level accuracy and one request per session
 
 Setting `DISABLE_AUTO_GEOLOCATION=true` disables both CoreLocation and IP geolocation (tiers 4 and 5). With auto-geolocation disabled and no env vars or explicit params, tools return an error.
