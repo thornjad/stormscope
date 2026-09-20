@@ -158,6 +158,39 @@ Create `.claude/skills/` skills for common patterns:
 - **Evening review**: `get_forecast mode=daily days=2` for tonight and tomorrow
 - **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_surface_analysis` + `get_upper_air` + `get_sounding` + `get_radar` + `get_alerts detail=full`
 
+## Using from scripts
+
+The tools can be called without an AI assistant or a running server. FastMCP's in-memory client talks to the server object directly, so the script starts, makes its calls and exits.
+
+```python
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["stormscope @ git+https://github.com/thornjad/stormscope"]
+# ///
+import asyncio
+
+from fastmcp import Client
+
+from stormscope.server import mcp
+
+
+async def main():
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "get_conditions", {"latitude": 44.98, "longitude": -93.27}
+        )
+        print(result.data)
+
+
+asyncio.run(main())
+```
+
+Run it with `uv run script.py`. `uv` installs the dependencies into a cached environment on first run. Inside a checkout, `uv run python script.py` works the same way with the dependency block omitted.
+
+`call_tool` takes any tool name from the [Tools](#tools) table and the same parameters, and `result.data` is the dict the tool returns. Configuration is read from the environment as usual (see [Configuration](#configuration)).
+
+Each run starts a fresh process, so the response cache starts empty and importing MetPy adds around a second of startup. A script that makes several calls should keep them inside one `async with` block to share the cache. For a one-off call from the shell, `fastmcp call path/to/server.py get_alerts latitude=44.98 longitude=-93.27 --json` also works from a checkout.
+
 ## Data sources
 
 StormScope aggregates data from several upstream services. None of these services require authentication or API keys.
