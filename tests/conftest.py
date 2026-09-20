@@ -535,17 +535,16 @@ MOCK_TEMPEST_FORECAST_RESPONSE = {
         "daily": [
             {
                 "day_start_local": 1741046400,  # 2026-03-04T06:00:00 local
-                "air_max": 24.0,
-                "air_min": 14.0,
+                "air_temp_high": 24.0,
+                "air_temp_low": 14.0,
                 "conditions": "Partly Cloudy",
                 "sunrise": _SUNRISE_EPOCH,
                 "sunset": _SUNSET_EPOCH,
-                "precip": 12.5,  # mm
             },
             {
                 "day_start_local": 1741132800,  # 2026-03-05T06:00:00 local
-                "air_max": 20.0,
-                "air_min": 10.0,
+                "air_temp_high": 20.0,
+                "air_temp_low": 10.0,
                 "conditions": "Rain",
                 "sunrise": _SUNRISE_EPOCH + 86400,
                 "sunset": _SUNSET_EPOCH + 86400,

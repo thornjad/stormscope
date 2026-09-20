@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from stormscope.config import config
 from stormscope.geo import haversine_km, KM_PER_MI
@@ -293,11 +293,15 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
 
         start_str = p.get("start_time") or ""
         date_key = None
+        low_key = None
         period_epoch_hr = None
         if start_str:
             try:
                 dt = datetime.fromisoformat(start_str)
                 date_key = dt.strftime("%Y-%m-%d")
+                # an evening night period lows out before dawn, on the next calendar day
+                low_date = dt.date() + timedelta(days=1) if dt.hour >= 12 else dt.date()
+                low_key = low_date.strftime("%Y-%m-%d")
                 # NWS always returns offset-aware ISO strings so .timestamp()
                 # is always UTC-correct; naive strings are not possible here
                 epoch = int(dt.timestamp())
@@ -322,7 +326,10 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
 
             # daily temperature: only for daily-mode periods that have is_daytime
             if "is_daytime" in p:
-                t_val = td.get("air_max") if p["is_daytime"] else td.get("air_min")
+                if p["is_daytime"]:
+                    t_val = td.get("air_temp_high")
+                else:
+                    t_val = tempest_by_date.get(low_key, {}).get("air_temp_low")
                 if t_val is not None:
                     f_val = t_val if prefs.temperature == "f" else None
                     c_val = t_val if prefs.temperature == "c" else None
@@ -331,14 +338,6 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
             conditions = td.get("conditions")
             if conditions:
                 p["forecast"] = conditions
-
-            # precip from Tempest is in mm (API does not support cm); convert when needed
-            precip_mm = td.get("precip")
-            if precip_mm is not None:
-                if prefs.accumulation == "cm":
-                    p["precip"] = f"{precip_mm / 10:.1f} cm"
-                else:
-                    p["precip"] = _fmt_accumulation(precip_mm, prefs)
 
         if period_epoch_hr is not None and period_epoch_hr in tempest_hourly_by_epoch:
             th = tempest_hourly_by_epoch[period_epoch_hr]
