@@ -94,6 +94,22 @@ def c_to_f(celsius: float | None) -> float | None:
     return celsius * 9.0 / 5.0 + 32.0
 
 
+def f_to_c(fahrenheit: float | None) -> float | None:
+    """Convert Fahrenheit to Celsius."""
+    if fahrenheit is None:
+        return None
+    return (fahrenheit - 32.0) * 5.0 / 9.0
+
+
+def dewpoint_c(temp_c: float | None, rh: float | None) -> float | None:
+    """Dew point in Celsius from air temperature and relative humidity (%), via the Magnus formula."""
+    if temp_c is None or rh is None or rh <= 0:
+        return None
+    a, b = 17.625, 243.04
+    gamma = math.log(min(rh, 100.0) / 100.0) + a * temp_c / (b + temp_c)
+    return b * gamma / (a - gamma)
+
+
 def kmh_to_mph(kmh: float | None) -> float | None:
     """Convert km/h to mph."""
     if kmh is None:

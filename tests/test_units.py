@@ -3,7 +3,7 @@
 import pytest
 
 from stormscope.units import (
-    UnitPrefs, c_to_f, degrees_to_cardinal, kmh_to_mph, m_to_ft,
+    UnitPrefs, c_to_f, degrees_to_cardinal, dewpoint_c, f_to_c, kmh_to_mph, m_to_ft,
     m_to_miles, mm_to_inches, ms_to_mph, pa_to_hpa, pa_to_inhg,
     parse_units,
 )
@@ -24,6 +24,42 @@ class TestCToF:
 
     def test_none(self):
         assert c_to_f(None) is None
+
+
+class TestFToC:
+    def test_freezing(self):
+        assert f_to_c(32.0) == 0.0
+
+    def test_boiling(self):
+        assert f_to_c(212.0) == 100.0
+
+    def test_negative(self):
+        assert f_to_c(-40.0) == -40.0
+
+    def test_none(self):
+        assert f_to_c(None) is None
+
+
+class TestDewpointC:
+    def test_known_value(self):
+        # 25 C at 60% RH is a ~16.7 C dew point
+        assert dewpoint_c(25.0, 60.0) == pytest.approx(16.7, abs=0.1)
+
+    def test_saturated_air_equals_temperature(self):
+        assert dewpoint_c(12.0, 100.0) == pytest.approx(12.0, abs=0.01)
+
+    def test_below_freezing(self):
+        assert dewpoint_c(-5.0, 70.0) == pytest.approx(-9.6, abs=0.1)
+
+    def test_humidity_over_100_is_clamped(self):
+        assert dewpoint_c(10.0, 104.0) == pytest.approx(10.0, abs=0.01)
+
+    def test_zero_humidity(self):
+        assert dewpoint_c(20.0, 0.0) is None
+
+    def test_none_inputs(self):
+        assert dewpoint_c(None, 50.0) is None
+        assert dewpoint_c(20.0, None) is None
 
 
 class TestKmhToMph:

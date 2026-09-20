@@ -204,6 +204,10 @@ async def get_forecast(
     affects enriched fields: dewpoint/frost_point, feels_like, pressure, and
     snow/ice accumulation. Use mode="raw" for full unit-agnostic gridpoint data.
 
+    Periods include humidity. With a Tempest station, hourly periods use its
+    humidity and a dew point derived from it and its temperature, and daily
+    periods use its high/low; NWS values are kept as nws_* fields.
+
     units: "us" or "si" for base system, with optional field overrides:
     "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
     wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).

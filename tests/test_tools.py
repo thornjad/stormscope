@@ -1506,6 +1506,43 @@ class TestFrostPoint:
 
 class TestForecastEnrichedFields:
     @patch("stormscope.tools._nws")
+    async def test_daily_has_humidity(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
+
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert result["periods"][0]["humidity"] == "60%"
+
+    @patch("stormscope.tools._nws")
+    async def test_hourly_has_humidity(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_hourly_forecast = m.get_hourly_forecast
+        mock_nws.get_detailed_forecast = m.get_detailed_forecast
+
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, mode="hourly")
+
+        assert result["periods"][0]["humidity"] == "60%"
+
+    @patch("stormscope.tools._nws")
+    async def test_humidity_na_without_grid_data(self, mock_nws):
+        m = _mock_nws()
+        mock_nws.get_point = m.get_point
+        mock_nws.get_forecast = m.get_forecast
+        mock_nws.get_detailed_forecast = AsyncMock(return_value={})
+
+        from stormscope.tools import get_forecast
+        result = await get_forecast(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert result["periods"][0]["humidity"] == "N/A"
+
+    @patch("stormscope.tools._nws")
     async def test_daily_has_pressure_and_feels_like(self, mock_nws):
         m = _mock_nws()
         mock_nws.get_point = m.get_point
@@ -2048,8 +2085,8 @@ class TestTempestIntegration:
             "isDaytime": True,
             "probabilityOfPrecipitation": {"value": 0},
         }
-        arrays = {"dewpoint": [], "apparentTemperature": [], "pressure": [],
-                  "snowfallAmount": [], "iceAccumulation": []}
+        arrays = {"dewpoint": [], "apparentTemperature": [], "relativeHumidity": [],
+                  "pressure": [], "snowfallAmount": [], "iceAccumulation": []}
         entry = _build_forecast_period(period, 0, arrays, US_PREFS, include_daily_fields=True)
         assert entry["start_time"] == "2026-04-07T06:00:00-05:00"
 
@@ -2279,6 +2316,97 @@ class TestTempestIntegration:
         period = result["periods"][0]
         assert period["temperature"] == "23°F"
         assert period["nws_temperature"] == "70°F"
+
+    def _merge_hourly(self, hourly_updates, period_extra=None, prefs=US_PREFS):
+        """merge the first mock hourly entry, with overrides, into one NWS period."""
+        from stormscope.tools import _merge_tempest_forecast
+        from datetime import datetime, timezone
+        import copy
+
+        tempest_fc = copy.deepcopy(MOCK_TEMPEST_FORECAST_RESPONSE)
+        tempest_fc["forecast"]["hourly"][0].update(hourly_updates)
+        epoch = tempest_fc["forecast"]["hourly"][0]["time"]
+        period = {"start_time": datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()}
+        period.update(period_extra or {})
+        result = _merge_tempest_forecast(
+            {"periods": [period], "location": "Minneapolis, MN"}, tempest_fc, prefs,
+        )
+        return result["periods"][0]
+
+    def test_merge_forecast_hourly_humidity(self):
+        """hourly Tempest relative_humidity becomes humidity; NWS value kept as sidecar."""
+        period = self._merge_hourly({"relative_humidity": 58.0}, {"humidity": "70%"})
+        assert period["humidity"] == "58%"
+        assert period["nws_humidity"] == "70%"
+
+    def test_merge_forecast_hourly_humidity_without_nws_value(self):
+        period = self._merge_hourly({"relative_humidity": 58.0})
+        assert period["humidity"] == "58%"
+        assert "nws_humidity" not in period
+
+    def test_merge_forecast_hourly_humidity_na_gets_no_sidecar(self):
+        """an NWS N/A carries no information, so it is not kept as a sidecar."""
+        period = self._merge_hourly({"relative_humidity": 58.0}, {"humidity": "N/A"})
+        assert period["humidity"] == "58%"
+        assert "nws_humidity" not in period
+
+    def test_merge_forecast_hourly_dewpoint_derived(self):
+        """dew point is derived from air_temperature and humidity, replacing an NWS N/A."""
+        period = self._merge_hourly(
+            {"air_temperature": 68.0, "relative_humidity": 50.0}, {"dewpoint": "N/A"},
+        )
+        assert period["dewpoint"] == "49°F"
+        assert "nws_dewpoint" not in period
+
+    def test_merge_forecast_hourly_dewpoint_keeps_nws_sidecar(self):
+        period = self._merge_hourly(
+            {"air_temperature": 68.0, "relative_humidity": 50.0}, {"dewpoint": "40°F"},
+        )
+        assert period["dewpoint"] == "49°F"
+        assert period["nws_dewpoint"] == "40°F"
+
+    def test_merge_forecast_hourly_dewpoint_si(self):
+        period = self._merge_hourly(
+            {"air_temperature": 20.0, "relative_humidity": 50.0}, {"dewpoint": "N/A"}, SI_PREFS,
+        )
+        assert period["dewpoint"] == "9°C"
+
+    def test_merge_forecast_hourly_dewpoint_becomes_frost_point(self):
+        """a sub-freezing dew point takes the frost_point label and drops the NWS dewpoint key."""
+        period = self._merge_hourly(
+            {"air_temperature": 14.0, "relative_humidity": 80.0}, {"dewpoint": "N/A"},
+        )
+        assert period["frost_point"] == "9°F"
+        assert "dewpoint" not in period
+
+    def test_merge_forecast_hourly_frost_point_becomes_dewpoint(self):
+        period = self._merge_hourly(
+            {"air_temperature": 68.0, "relative_humidity": 50.0}, {"frost_point": "28°F"},
+        )
+        assert period["dewpoint"] == "49°F"
+        assert "frost_point" not in period
+        assert period["nws_frost_point"] == "28°F"
+
+    def test_merge_forecast_hourly_dewpoint_needs_humidity(self):
+        """without relative_humidity the NWS dew point is left alone."""
+        period = self._merge_hourly({"air_temperature": 68.0}, {"dewpoint": "45°F"})
+        assert period["dewpoint"] == "45°F"
+        assert "humidity" not in period
+
+    def test_merge_forecast_hourly_humidity_without_temperature(self):
+        """humidity still merges when air_temperature is missing; dew point stays NWS."""
+        period = self._merge_hourly({"relative_humidity": 58.0}, {"dewpoint": "45°F"})
+        assert period["humidity"] == "58%"
+        assert period["dewpoint"] == "45°F"
+
+    def test_merge_forecast_daily_period_gets_no_hourly_humidity(self):
+        """daily-mode periods keep NWS humidity and dew point."""
+        period = self._merge_hourly(
+            {"air_temperature": 68.0, "relative_humidity": 50.0},
+            {"is_daytime": True, "humidity": "70%", "dewpoint": "40°F"},
+        )
+        assert period["humidity"] == "70%"
+        assert period["dewpoint"] == "40°F"
 
     @patch("stormscope.tools._tempest")
     async def test_get_tempest_station_location_uses_resolve_station(self, mock_tempest):

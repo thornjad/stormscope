@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- fix Tempest daily highs and lows never overriding NWS in `get_forecast mode=daily`; the merge read `air_max`/`air_min`, but `better_forecast` returns `air_temp_high`/`air_temp_low`, and the test mocks used the same wrong names
+- an evening night period (such as "Tonight") now takes the next date's Tempest low, since the low happens before dawn; previously it would have used the current calendar day's
+- stop the hourly Tempest temperature from replacing the daily high/low on a daily period that starts on an hour with a Tempest hourly entry
+- remove the daily Tempest `precip` handling; the API reports precip amounts only hourly, so it never had data to read
+- add `humidity` to forecast periods, from NWS gridpoint `relativeHumidity`; hourly periods with Tempest data use Tempest's `relative_humidity` instead
+- fill hourly `dewpoint`/`frost_point` from a Magnus-formula derivation of Tempest temperature and humidity, since `better_forecast` has no dew point; this replaces the frequent NWS `N/A`, keeps frost-point labeling at and below 0°C, and preserves a real NWS value as `nws_dewpoint`/`nws_frost_point`
+- stop keeping an NWS `N/A` as an `nws_*` comparison field when Tempest replaces it
+
 ## 1.5.0
 
 - add `get_sounding` tool returning a vertical sounding with derived indices: surface-based CAPE/CIN, LCL/LFC/equilibrium level, freezing level, 700-500mb and 850-500mb lapse rates, precipitable water, 0-1km and 0-6km bulk shear, and 0-1km and 0-3km storm-relative helicity (Bunkers right-mover)

@@ -14,7 +14,7 @@ from stormscope.raob import RAOBClient
 from stormscope.spc import SPCClient
 from stormscope.sounding import compute_indices, find_inversions
 from stormscope.units import (
-    UnitPrefs, c_to_f, degrees_to_cardinal, gpm_to_dam, kmh_to_mph,
+    UnitPrefs, c_to_f, degrees_to_cardinal, dewpoint_c, f_to_c, gpm_to_dam, kmh_to_mph,
     m_to_ft, m_to_miles, mm_to_inches, ms_to_kt, ms_to_mph, pa_to_inhg,
     parse_units, station_pressure_to_slp_mb,
 )
@@ -256,7 +256,7 @@ def _merge_tempest_conditions(
     return result
 
 
-_SIDECAR_FIELDS = ("temperature", "forecast", "wind", "feels_like", "precipitation_chance")
+_SIDECAR_FIELDS = ("temperature", "forecast", "wind", "feels_like", "precipitation_chance", "humidity")
 
 
 def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: UnitPrefs) -> dict:
@@ -290,6 +290,7 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
         p = dict(period)
         # snapshot NWS originals before any Tempest overwrite
         nws_snapshot = {f: p.get(f) for f in _SIDECAR_FIELDS}
+        nws_dp = next(((k, p[k]) for k in ("dewpoint", "frost_point") if p.get(k) not in (None, "N/A")), None)
 
         start_str = p.get("start_time") or ""
         date_key = None
@@ -369,17 +370,32 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
             if precip_type and precip_type != "none" and (precip_prob is None or precip_prob > 0):
                 p["precip_type"] = precip_type
 
-            # a 12h daily period keeps its daily high/low, not the start-hour reading
+            # a 12h daily period keeps its daily high/low, humidity and dew point,
+            # not the start-hour reading
             air_temp = th.get("air_temperature")
             if air_temp is not None and "is_daytime" not in p:
                 f_val = air_temp if prefs.temperature == "f" else None
                 c_val = air_temp if prefs.temperature == "c" else None
                 p["temperature"] = _fmt_temp(f_val, c_val, prefs)
 
+            rh = th.get("relative_humidity")
+            if rh is not None and "is_daytime" not in p:
+                p["humidity"] = _fmt_humidity(rh)
+                # the API has no hourly dew point, so derive it from temperature and humidity
+                temp_c = f_to_c(air_temp) if prefs.temperature == "f" else air_temp
+                dew_c = dewpoint_c(temp_c, rh)
+                if dew_c is not None:
+                    dp_key = "frost_point" if dew_c <= 0 else "dewpoint"
+                    p[dp_key] = _fmt_temp(c_to_f(dew_c), dew_c, prefs)
+                    # NWS set exactly one of these; keep the merged result to one label
+                    p.pop("frost_point" if dp_key == "dewpoint" else "dewpoint", None)
+                    if nws_dp and p.get(nws_dp[0]) != nws_dp[1]:
+                        p[f"nws_{nws_dp[0]}"] = nws_dp[1]
+
         # preserve original NWS values as sidecars when Tempest overwrote them
         for field in _SIDECAR_FIELDS:
             original = nws_snapshot[field]
-            if original is not None and p.get(field) != original:
+            if original not in (None, "N/A") and p.get(field) != original:
                 p[f"nws_{field}"] = original
 
         enriched_periods.append(p)
@@ -691,12 +707,13 @@ def _extract_grid_arrays(grid_data: dict, periods: list[dict]) -> dict:
     n = len(periods)
     if not grid_data:
         return {k: [None] * n for k in (
-            "dewpoint", "apparentTemperature", "pressure",
+            "dewpoint", "apparentTemperature", "relativeHumidity", "pressure",
             "snowfallAmount", "iceAccumulation",
         )}
     return {
         "dewpoint": _grid_values_for_periods(grid_data.get("dewpoint", {}), periods),
         "apparentTemperature": _grid_values_for_periods(grid_data.get("apparentTemperature", {}), periods),
+        "relativeHumidity": _grid_values_for_periods(grid_data.get("relativeHumidity", {}), periods),
         "pressure": _grid_values_for_periods(grid_data.get("pressure", {}), periods),
         "snowfallAmount": _grid_values_for_periods(grid_data.get("snowfallAmount", {}), periods, aggregate="sum"),
         "iceAccumulation": _grid_values_for_periods(grid_data.get("iceAccumulation", {}), periods, aggregate="sum"),
@@ -723,6 +740,10 @@ def _build_forecast_period(
     # feels like (apparent temperature)
     at_c = grid_arrays["apparentTemperature"][i] if i < len(grid_arrays["apparentTemperature"]) else None
     entry["feels_like"] = _fmt_temp(c_to_f(at_c), at_c, prefs) if at_c is not None else "N/A"
+
+    # relative humidity
+    rh = grid_arrays["relativeHumidity"][i] if i < len(grid_arrays["relativeHumidity"]) else None
+    entry["humidity"] = _fmt_humidity(rh)
 
     # pressure
     pa = grid_arrays["pressure"][i] if i < len(grid_arrays["pressure"]) else None

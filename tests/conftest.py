@@ -113,6 +113,16 @@ MOCK_GRIDPOINT_RESPONSE = {
             "uom": "wmoUnit:degC",
             "values": [{"validTime": "2026-03-04T12:00:00+00:00/PT1H", "value": 22.2}],
         },
+        "relativeHumidity": {
+            "uom": "wmoUnit:percent",
+            "values": [
+                {"validTime": f"2026-03-04T{h:02d}:00:00+00:00/PT1H", "value": 60.0}
+                for h in range(12, 24)
+            ] + [
+                {"validTime": f"2026-03-05T{h:02d}:00:00+00:00/PT1H", "value": 75.0}
+                for h in range(0, 12)
+            ],
+        },
         "dewpoint": {
             "uom": "wmoUnit:degC",
             "values": [
