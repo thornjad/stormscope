@@ -2,14 +2,14 @@
 
 Real-time US weather data for AI assistants via MCP. Uses the NWS API, NOAA Storm Prediction Center data, NOAA Weather Prediction Center surface analysis, Iowa Environmental Mesonet radar and radiosonde soundings, and Open-Meteo pressure-level model data. Optionally uses data from your Tempest personal weather station.
 
-**US locations only**. Covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return a clear error. The SPC national outlook covers the contiguous US only.
+**US locations only**. Covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return an error. The SPC national outlook covers the contiguous US only.
 
 ## What it does
 
-Most tools support a `detail` parameter. **Standard** gives a clean summary, and **full** adds the technical depth (METAR, VTEC codes, polygon geometry, probabilistic outlooks).
+Most tools support a `detail` parameter. Standard gives a clean summary, and full adds more nerd stuff (METAR, VTEC codes, polygon geometry, probabilistic outlooks).
 
 - Current conditions: temperature, wind, humidity, sky, pressure
-- Forecast in daily narrative periods, hourly, or raw gridpoint time-value series
+- Forecast in daily periods, hourly, or raw gridpoint time-value series
 - Active weather alerts with severity filtering
 - SPC severe weather outlook, both categorical risk and probabilistic tornado/wind/hail
 - National severe outlook with human-readable region descriptions
@@ -17,7 +17,6 @@ Most tools support a `detail` parameter. **Standard** gives a clean summary, and
 - 500mb upper-air analysis: geopotential heights, temperature, wind, and derived vorticity (synoptic-scale resolution from a 5-point finite-difference grid, useful for identifying troughs, ridges, and jet stream patterns but not mesoscale features)
 - Soundings: the latest observed radiosonde from the nearest launch site (with its distance and direction from you) or a model profile at your exact location, with CAPE/CIN, LCL, freezing level, lapse rates, precipitable water, bulk shear, storm-relative helicity, and temperature inversions
 - Surface analysis: fronts, pressure centers (highs/lows), and warm/cold sector detection relative to the nearest cold front
-- Combined briefing that pulls everything together and adapts to the situation
 
 ## Installation
 
@@ -76,7 +75,7 @@ If you have a [Tempest](https://tempest.earth/tempest-home-weather-system/) pers
 
 **Tempest data supplements NWS.** NWS provides authoritative alert text, detailed narrative forecasts, and broad coverage, while Tempest provides hyper-local precision at your exact station location. When a Tempest station is within range, StormScope uses Tempest values for temperature, feels-like, humidity, wind, and pressure, and sets `data_source: "tempest"` in the response.
 
-If the Tempest API is unavailable, all tools fall back to NWS data without error.
+If the Tempest API is unavailable, all tools fall back to NWS data.
 
 ### Setup
 
@@ -122,7 +121,7 @@ All location-aware tools accept optional `latitude`/`longitude`, falling back to
 
 Upper-air data provided by [Open-Meteo](https://open-meteo.com/) under CC-BY 4.0. Vorticity is derived from model wind fields at ~110km grid spacing, which captures synoptic-scale features (shortwave troughs, jet maxima) but not mesoscale detail.
 
-Soundings come from the NWS radiosonde network via IEM, launched around 00Z and 12Z from roughly 85 US sites, so the nearest site can be hundreds of kilometers away and up to 12 hours old. `get_sounding` with `source=observed` reports the site's distance and bearing from you and adds a note when it is far or old. Use `source=model` for a profile at your exact location or a forecast hour (up to 48). Both report surface-based CAPE/CIN, LCL/LFC/EL, freezing level, lapse rates, precipitable water, 0-1 and 0-6 km bulk shear, 0-1 and 0-3 km storm-relative helicity, and temperature inversions below ~5 km. Index calculations use [MetPy](https://unidata.github.io/MetPy/).
+Soundings come from the NWS radiosonde network via IEM from roughly 85 US sites, so the nearest site can be hundreds of kilometers away and up to 12 hours old. `get_sounding` with `source=observed` reports the site's distance and bearing from you and adds a note when it is far or old. Use `source=model` for a profile at your exact location or a forecast hour (up to 48). Both report surface-based CAPE/CIN, LCL/LFC/EL, freezing level, lapse rates, precipitable water, 0-1 and 0-6 km bulk shear, 0-1 and 0-3 km storm-relative helicity, and temperature inversions below ~5 km. Index calculations use [MetPy](https://unidata.github.io/MetPy/).
 
 ### Example conversation
 
@@ -148,15 +147,6 @@ National: SLGT risk in central Oklahoma, MRGL in northern Texas
 Radar: KMPX, latest scan 12:00Z, N0B/N0S available
 Day 2: TSTM, Day 3: NONE
 ```
-
-## Skill suggestions
-
-Create `.claude/skills/` skills for common patterns:
-
-- **Morning briefing**: `get_briefing detail=full` for a full picture to start the day
-- **Quick check**: `get_conditions` for just current conditions
-- **Evening review**: `get_forecast mode=daily days=2` for tonight and tomorrow
-- **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_surface_analysis` + `get_upper_air` + `get_sounding` + `get_radar` + `get_alerts detail=full`
 
 ## Using from scripts
 
