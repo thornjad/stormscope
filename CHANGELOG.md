@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0
+
+- add `get_sounding` tool returning a vertical sounding with derived indices: surface-based CAPE/CIN, LCL/LFC/equilibrium level, freezing level, 700-500mb and 850-500mb lapse rates, precipitable water, 0-1km and 0-6km bulk shear, and 0-1km and 0-3km storm-relative helicity (Bunkers right-mover)
+- `source="observed"` (default) fetches the latest radiosonde from the nearest active NWS launch site via IEM and reports the site's distance and bearing from the requested location, with notes when the site is over 250 km away or the sounding is over 10 hours old. Falls back to the previous cycle and then the next-nearest sites; `station` forces a specific site
+- `source="model"` builds a profile from Open-Meteo pressure-level data at the exact location for the current hour or up to 48 hours ahead (`hours_ahead`), dropping pressure levels below the model surface
+- report temperature inversions below ~5 km AGL in `inversions` (surface-based or elevated, base and top height and pressure, strength); adjacent warming steps merge into one layer and layers under 0.5°C are ignored
+- add `metpy` dependency for the index calculations
+
 ## 1.4.8
 
 - fix dew point reporting `N/A` when the NWS METAR omits it but a Tempest station is active; `_merge_tempest_conditions` now backfills dew point from the Tempest `dew_point` field, with frost-point labeling at and below 0°C to match the NWS path

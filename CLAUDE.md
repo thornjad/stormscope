@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-StormScope is a real-time US weather data MCP server. It aggregates data from NWS (National Weather Service), NOAA SPC (Storm Prediction Center), Iowa Environmental Mesonet (NEXRAD radar), Open-Meteo (500mb upper-air model data), and optionally WeatherFlow Tempest personal weather stations into 9 tools consumed by AI assistants via the FastMCP framework.
+StormScope is a real-time US weather data MCP server. It aggregates data from NWS (National Weather Service), NOAA SPC (Storm Prediction Center), Iowa Environmental Mesonet (NEXRAD radar, radiosonde soundings), Open-Meteo (500mb upper-air and sounding model data), and optionally WeatherFlow Tempest personal weather stations into 10 tools consumed by AI assistants via the FastMCP framework.
 
 ## Commands
 
@@ -19,14 +19,15 @@ There is no separate build or lint step. The project uses `hatchling` as build b
 
 ## Architecture
 
-All code lives in `src/stormscope/`. The server exposes 9 async MCP tools defined in `server.py`, with implementations in `tools.py` that aggregate results from seven data-source clients:
+All code lives in `src/stormscope/`. The server exposes 10 async MCP tools defined in `server.py`, with implementations in `tools.py` that aggregate results from eight data-source clients:
 
 - **`nws.py`** — NWS API client (conditions, forecasts, alerts, gridpoint data). Has per-endpoint TTL caching and retry logic.
 - **`spc.py`** — SPC outlook client. Parses GeoJSON for categorical and probabilistic severe weather risk (tornado/wind/hail), days 1-3.
 - **`codsus.py`** — WPC Coded Surface Frontal Positions (CODSUS/ASUS02) parser and client. Fetches the hand-analyzed surface bulletin from IEM every 3 hours, parses 7-digit encoded coordinates into structured front segments and pressure centers. Used by `get_surface_analysis` for current conditions.
 - **`wpc.py`** — WPC national forecast chart client. Parses GeoJSON for frontal positions and pressure centers from the prognostic chart, days 1-3. Used by `get_surface_analysis` with `product="forecast"`.
 - **`iem.py`** — Iowa Mesonet client for NEXRAD radar station metadata and imagery URLs.
-- **`openmeteo.py`** — Open-Meteo client for 500mb pressure-level data (heights, temperature, wind). Fetches a 5-point cross pattern for vorticity computation.
+- **`openmeteo.py`** — Open-Meteo client for 500mb pressure-level data (heights, temperature, wind). Fetches a 5-point cross pattern for vorticity computation. Also builds model soundings (16 pressure levels plus 2m/10m surface values, below-ground levels dropped) for `get_sounding` with `source="model"`.
+- **`raob.py`** — IEM RAOB client. Lists active radiosonde sites (retired sites and `_XXX` area aggregates filtered out), finds the nearest ones, and fetches the latest 00Z/12Z sounding, falling back to the previous cycle and then the next-nearest site. Used by `get_sounding` with `source="observed"`, which reports distance and bearing to the launch site.
 - **`tempest.py`** — WeatherFlow Tempest personal weather station client. Resolves stations by ID, name, or proximity and enriches NWS conditions with hyper-local sensor readings (solar radiation, UV index, lightning, air density, wet bulb temperature). Falls back silently to NWS when unavailable.
 
 Supporting modules:
@@ -35,6 +36,7 @@ Supporting modules:
 - **`config.py`** — Environment variable configuration (`PRIMARY_LATITUDE`, `PRIMARY_LONGITUDE`, `UNITS`, `ENABLE_CORELOCATION`, `DISABLE_AUTO_GEOLOCATION`, `TEMPEST_TOKEN`, `TEMPEST_STATION_ID`, `TEMPEST_STATION_NAME`, `USE_TEMPEST_STATION_GEOLOCATION`).
 - **`units.py`** — Unit conversion helpers (temperature, wind, distance, pressure, cardinal directions, knots, decameters).
 - **`vorticity.py`** — Pure-math module for computing relative and absolute vorticity from 5-point finite-difference wind fields.
+- **`sounding.py`** — Derives CAPE/CIN, LCL/LFC/EL, freezing level, lapse rates, PWAT, bulk shear, and storm-relative helicity from a sounding profile using MetPy, and finds low-level temperature inversions (`find_inversions`, plain Python). Each index fails independently to `None`. MetPy import is slow (~1s), and CAPE runs in `asyncio.to_thread`.
 
 ## Testing
 

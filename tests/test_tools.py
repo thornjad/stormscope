@@ -2448,3 +2448,277 @@ class TestTempestPressureBehavior:
         assert result["pressure_source"] == "sea_level"
         assert result["data_source"] == "tempest"
 
+
+
+def _sounding_profile(sfc_p=970.0, sfc_height=300.0):
+    """simple unstable, veering-wind profile, surface first."""
+    levels = [{
+        "pressure": sfc_p, "height": sfc_height, "temp": 33.0, "dewpoint": 24.0,
+        "wind_dir": 160.0, "wind_speed": 10.0,
+    }]
+    for p, z, t, td, d, spd in [
+        (925.0, 800.0, 24.0, 18.0, 180.0, 20.0),
+        (850.0, 1500.0, 18.0, 14.0, 200.0, 25.0),
+        (700.0, 3100.0, 6.0, -2.0, 225.0, 35.0),
+        (500.0, 5800.0, -14.0, -24.0, 245.0, 50.0),
+        (300.0, 9500.0, -42.0, -55.0, 255.0, 80.0),
+        (250.0, 10800.0, -52.0, -65.0, 255.0, 95.0),
+        (200.0, 12300.0, -58.0, -70.0, 255.0, 100.0),
+    ]:
+        levels.append({
+            "pressure": p, "height": z, "temp": t, "dewpoint": td,
+            "wind_dir": d, "wind_speed": spd,
+        })
+    return levels
+
+
+def _raob_result(dist_km=45.0, age_h=6, station_lat=44.83, station_lon=-93.55):
+    from datetime import datetime, timedelta, timezone
+    return {
+        "station": {
+            "id": "KMPX", "name": "Chanhassen MN/US", "lat": station_lat,
+            "lon": station_lon, "elevation_m": 287.0,
+        },
+        "distance_km": dist_km,
+        "valid": datetime.now(timezone.utc) - timedelta(hours=age_h),
+        "profile": _sounding_profile(),
+    }
+
+
+class TestGetSounding:
+    @patch("stormscope.tools._raob")
+    async def test_observed_reports_distance_and_direction(self, mock_raob):
+        mock_raob.get_latest = AsyncMock(return_value=_raob_result())
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "error" not in result
+        assert result["source"] == "observed"
+        station = result["station"]
+        assert station["id"] == "KMPX"
+        assert station["distance"] == "28 mi"
+        assert station["distance_km"] == 45.0
+        # station is southwest of downtown Minneapolis
+        assert station["bearing"] in ("SW", "WSW")
+        assert 200 < station["bearing_deg"] < 260
+        assert station["summary"].startswith("Chanhassen MN/US, 28 mi to the ")
+        assert result["notes"] == []
+        assert "Iowa Environmental Mesonet" in result["attribution"]
+        assert "_profile" not in result
+
+    @patch("stormscope.tools._raob")
+    async def test_observed_units_si(self, mock_raob):
+        mock_raob.get_latest = AsyncMock(return_value=_raob_result())
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, units="si")
+
+        assert result["station"]["distance"] == "45 km"
+        assert result["station"]["elevation"] == "287 m"
+        assert result["indices"]["lcl"].endswith("m AGL")
+        assert result["levels"][0]["temperature"].endswith("°C")
+
+    @patch("stormscope.tools._raob")
+    async def test_far_and_old_sounding_add_notes(self, mock_raob):
+        mock_raob.get_latest = AsyncMock(return_value=_raob_result(dist_km=400.0, age_h=18))
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert len(result["notes"]) == 2
+        assert "source='model'" in result["notes"][0]
+        assert "h old" in result["notes"][1]
+        assert 18 <= result["age_hours"] < 19
+
+    @patch("stormscope.tools._raob")
+    async def test_indices_and_levels(self, mock_raob):
+        mock_raob.get_latest = AsyncMock(return_value=_raob_result())
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        ix = result["indices"]
+        assert ix["parcel"] == "surface-based"
+        assert ix["cape"].endswith("J/kg") and ix["cape"] != "0 J/kg"
+        assert ix["bulk_shear_0_6km"].endswith("mph")
+        assert ix["srh_0_3km"].endswith("m²/s²")
+        assert ix["precipitable_water"].endswith("in")
+
+        levels = result["levels"]
+        assert levels[0]["surface"] is True
+        assert [lv["pressure"] for lv in levels][1:] == [
+            "925 mb", "850 mb", "700 mb", "500 mb", "300 mb", "250 mb", "200 mb",
+        ]
+        assert set(levels[0]) >= {"pressure", "height", "temperature", "dewpoint", "wind"}
+
+    @patch("stormscope.tools._raob")
+    async def test_detail_full_includes_non_mandatory_levels(self, mock_raob):
+        raob = _raob_result()
+        raob["profile"].insert(1, {
+            "pressure": 900.0, "height": 1000.0, "temp": 22.0, "dewpoint": 17.0,
+            "wind_dir": 190.0, "wind_speed": 22.0,
+        })
+        mock_raob.get_latest = AsyncMock(return_value=raob)
+
+        from stormscope.tools import get_sounding
+        standard = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+        full = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, detail="full")
+
+        assert "900 mb" not in [lv["pressure"] for lv in standard["levels"]]
+        assert "900 mb" in [lv["pressure"] for lv in full["levels"]]
+
+    @patch("stormscope.tools._raob")
+    async def test_no_inversions_reports_empty_list(self, mock_raob):
+        mock_raob.get_latest = AsyncMock(return_value=_raob_result())
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert result["inversions"] == []
+
+    @patch("stormscope.tools._raob")
+    async def test_inversion_formatting_us_and_si(self, mock_raob):
+        raob = _raob_result()
+        # warm nose between 925 and 850 mb: 24 -> 27 C before cooling again
+        raob["profile"][2]["temp"] = 27.0
+        mock_raob.get_latest = AsyncMock(return_value=raob)
+
+        from stormscope.tools import get_sounding
+        us = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+        si = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, units="si")
+
+        assert len(us["inversions"]) == 1
+        layer = us["inversions"][0]
+        assert layer["type"] == "elevated"
+        assert layer["base"] == "1640 ft AGL"  # 800 m - 300 m surface = 500 m
+        assert layer["base_pressure"] == "925 mb" and layer["top_pressure"] == "850 mb"
+        assert layer["strength"] == "+5.4°F"
+        assert si["inversions"][0]["base"] == "500 m AGL"
+        assert si["inversions"][0]["strength"] == "+3.0°C"
+
+    @patch("stormscope.tools._raob")
+    async def test_surface_based_inversion_type(self, mock_raob):
+        raob = _raob_result()
+        raob["profile"][0]["temp"] = 20.0  # surface colder than 925 mb (24 C)
+        mock_raob.get_latest = AsyncMock(return_value=raob)
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert result["inversions"][0]["type"] == "surface-based"
+        assert result["inversions"][0]["base"] == "0 ft AGL"
+
+    @patch("stormscope.tools._raob")
+    async def test_standard_detail_skips_significant_level_near_mandatory(self, mock_raob):
+        raob = _raob_result()
+        raob["profile"].insert(3, {
+            "pressure": 850.2, "height": 1507.0, "temp": 18.0, "dewpoint": 14.0,
+            "wind_dir": 200.0, "wind_speed": 25.0,
+        })
+        mock_raob.get_latest = AsyncMock(return_value=raob)
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        pressures = [lv["pressure"] for lv in result["levels"]]
+        assert pressures.count("850 mb") == 1
+
+    @patch("stormscope.tools._raob")
+    async def test_below_ground_null_level_skipped_and_surface_marked(self, mock_raob):
+        raob = _raob_result()
+        raob["profile"].insert(0, {
+            "pressure": 1000.0, "height": 93.0, "temp": None, "dewpoint": None,
+            "wind_dir": None, "wind_speed": None,
+        })
+        mock_raob.get_latest = AsyncMock(return_value=raob)
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, detail="full")
+
+        assert "1000 mb" not in [lv["pressure"] for lv in result["levels"]]
+        assert result["levels"][0]["surface"] is True
+        assert result["levels"][0]["pressure"] == "970 mb"
+
+    @patch("stormscope.tools._raob")
+    async def test_named_station_passed_through(self, mock_raob):
+        mock_raob.get_latest = AsyncMock(return_value=_raob_result())
+
+        from stormscope.tools import get_sounding
+        await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, station="KOUN")
+
+        assert mock_raob.get_latest.call_args.args[2] == "KOUN"
+
+    @patch("stormscope.tools._raob")
+    async def test_unknown_station_error(self, mock_raob):
+        mock_raob.get_latest = AsyncMock(side_effect=ValueError("unknown radiosonde station: ZZZ"))
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, station="ZZZ")
+
+        assert result == {"error": "unknown radiosonde station: ZZZ"}
+
+    @patch("stormscope.tools._raob")
+    async def test_no_data_error(self, mock_raob):
+        mock_raob.get_latest = AsyncMock(return_value=None)
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "no recent radiosonde data" in result["error"]
+
+    @patch("stormscope.tools._raob")
+    async def test_upstream_failure_error(self, mock_raob):
+        mock_raob.get_latest = AsyncMock(side_effect=Exception("boom"))
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON)
+
+        assert "failed to fetch sounding" in result["error"]
+
+    @patch("stormscope.tools._openmeteo")
+    async def test_model_source(self, mock_openmeteo):
+        mock_openmeteo.get_sounding = AsyncMock(return_value={
+            "valid": "2026-09-20T23:00", "elevation_m": 300.0, "profile": _sounding_profile(),
+        })
+
+        from stormscope.tools import get_sounding
+        result = await get_sounding(
+            MINNEAPOLIS_LAT, MINNEAPOLIS_LON, source="model", hours_ahead=6,
+        )
+
+        assert "error" not in result
+        assert result["source"] == "model"
+        assert result["valid"] == "2026-09-20T23:00Z"
+        assert result["hours_ahead"] == 6
+        assert "station" not in result
+        assert "Open-Meteo" in result["attribution"]
+        assert result["indices"]["cape"] != "N/A"
+        mock_openmeteo.get_sounding.assert_awaited_once_with(
+            MINNEAPOLIS_LAT, MINNEAPOLIS_LON, 6,
+        )
+
+    async def test_invalid_source(self):
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, source="satellite")
+        assert "invalid source" in result["error"]
+
+    async def test_hours_ahead_rejected_for_observed(self):
+        from stormscope.tools import get_sounding
+        result = await get_sounding(MINNEAPOLIS_LAT, MINNEAPOLIS_LON, hours_ahead=3)
+        assert "only to source='model'" in result["error"]
+
+    async def test_station_rejected_for_model(self):
+        from stormscope.tools import get_sounding
+        result = await get_sounding(
+            MINNEAPOLIS_LAT, MINNEAPOLIS_LON, source="model", station="KOUN",
+        )
+        assert "only to source='observed'" in result["error"]
+
+    async def test_hours_ahead_out_of_range(self):
+        from stormscope.tools import get_sounding
+        for hours in (-1, 49):
+            result = await get_sounding(
+                MINNEAPOLIS_LAT, MINNEAPOLIS_LON, source="model", hours_ahead=hours,
+            )
+            assert "invalid hours_ahead" in result["error"]

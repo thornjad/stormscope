@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "stormscope"
 version = "1.4.8"
-description = "MCP server for real-time US weather data via NWS API, NOAA SPC, and IEM radar"
+description = "MCP server for real-time US weather data via NWS API, NOAA SPC, IEM radar, and radiosonde soundings"
 readme = "README.md"
 license = "ISC"
 requires-python = ">=3.11"
 authors = [
     { name = "Jade Michael Thornton" },
 ]
-keywords = ["mcp", "weather", "nws", "noaa", "spc", "radar"]
+keywords = ["mcp", "weather", "nws", "noaa", "spc", "radar", "sounding"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
@@ -25,6 +25,7 @@ classifiers = [
 dependencies = [
     "fastmcp>=2.0",
     "httpx>=0.27",
+    "metpy>=1.7.1",
     "shapely>=2.0",
 ]
 

@@ -50,6 +50,13 @@ mcp = FastMCP(
         "sectors, surface lows/highs, or synoptic surface patterns. Returns "
         "distance and bearing to nearby fronts and pressure centers, plus "
         "warm/cold sector detection relative to the nearest cold front.\n\n"
+        "Use get_sounding when the user asks about a sounding, skew-T, CAPE, CIN, "
+        "instability, LCL, wind shear, helicity, freezing level, lapse rates, or "
+        "precipitable water. source='observed' (default) returns the latest "
+        "radiosonde from the nearest launch site, including its distance and "
+        "direction from the user; check that distance and the sounding age before "
+        "applying it locally, and use source='model' for a profile at the exact "
+        "location or a future hour.\n\n"
         "When a Tempest weather station is configured, it is the primary source "
         "for every field it measures and get_conditions adds hyper-local sensor "
         "data from the user's personal station: solar_radiation, uv_index, "
@@ -468,6 +475,76 @@ async def get_surface_analysis(
         return {"error": str(exc)}
     return await tools.get_surface_analysis(
         lat, lon, product=product, day=day, detail=detail, units=units, scope=scope,
+    )
+
+
+@mcp.tool()
+async def get_sounding(
+    latitude: float | None = None,
+    longitude: float | None = None,
+    source: str = "observed",
+    station: str | None = None,
+    hours_ahead: int = 0,
+    detail: str = "standard",
+    units: str | None = None,
+) -> dict:
+    """Get a vertical atmospheric sounding with derived stability and shear indices.
+
+    Use when: "What does the sounding look like?", "How much CAPE?",
+    "Is there a cap?", "What's the wind shear?", "Freezing level?",
+    "Any helicity?", "How unstable is it?"
+
+    source="observed" (default): latest radiosonde (weather balloon) from the
+    nearest NWS launch site, via Iowa Environmental Mesonet. Launches happen
+    around 00Z and 12Z, so data can be up to ~12h old. The station block gives
+    the launch site's distance and bearing from your location (bearing is the
+    direction you would look to find the site). Launch sites are 300+ km
+    apart, so a distant site may not represent local conditions; notes flag
+    this. Worldwide sites are supported, but coverage is densest in the US.
+    station: optional ICAO id (e.g. "KOUN") to force a specific site.
+
+    source="model": forecast-model profile (Open-Meteo/GFS) at your exact
+    location. hours_ahead: 0-48, default 0 (current hour). Use this when the
+    nearest launch site is far away, the observed sounding is old, or you want
+    a forecast sounding. Model soundings are smoother than observed ones and
+    underestimate sharp inversions and low-level moisture features.
+
+    inversions: temperature inversions (warming with height) with a base below
+    ~5 km AGL and at least 0.5C of warming, each with type (surface-based or
+    elevated), base and top heights, pressures, and strength. An empty list
+    means none were found. Use for questions about capping, fog, or stability.
+
+    Indices come from a surface-based parcel: CAPE, CIN, LCL, LFC,
+    equilibrium level, freezing level, 700-500mb and 850-500mb lapse rates,
+    precipitable water, 0-1km and 0-6km bulk shear, and 0-1km and 0-3km
+    storm-relative helicity (Bunkers right-mover). Heights are above ground
+    (AGL). An index is "N/A" when the profile can't support it (for example,
+    850-500mb lapse rate at high elevations where 850mb is underground).
+
+    detail="standard": surface plus mandatory pressure levels
+    (1000/925/850/700/500/300/250/200mb). detail="full": every level.
+
+    Omit lat/lon to use configured primary location.
+
+    units: "us" or "si" for base system, with optional field overrides:
+    "us,pressure:mb,wind:kt". Fields: temperature (f|c), pressure (inhg|mb),
+    wind (mph|kt|kmh|ms), distance (mi|km), accumulation (in|mm|cm).
+    Heights follow the distance unit (mi is feet, km is meters).
+    """
+    if source not in ("observed", "model"):
+        return {"error": f"invalid source '{source}', must be 'observed' or 'model'"}
+    if detail not in _VALID_DETAILS:
+        return {"error": f"invalid detail '{detail}', must be one of: standard, full"}
+    err = _validate_units(units)
+    if err:
+        return err
+    try:
+        lat, lon = await _resolve_location(latitude, longitude)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return await tools.get_sounding(
+        lat, lon, source=source, station=station, hours_ahead=hours_ahead,
+        detail=detail, units=units,
     )
 
 

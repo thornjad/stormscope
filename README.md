@@ -1,6 +1,6 @@
 # StormScope
 
-Real-time US weather data for AI assistants via MCP. Uses the NWS API, NOAA Storm Prediction Center data, NOAA Weather Prediction Center surface analysis, Iowa Environmental Mesonet radar, and Open-Meteo pressure-level model data. Optionally uses data from your Tempest personal weather station.
+Real-time US weather data for AI assistants via MCP. Uses the NWS API, NOAA Storm Prediction Center data, NOAA Weather Prediction Center surface analysis, Iowa Environmental Mesonet radar and radiosonde soundings, and Open-Meteo pressure-level model data. Optionally uses data from your Tempest personal weather station.
 
 **US locations only**. Covers all 50 states, DC, and US territories (Puerto Rico, Guam, USVI, American Samoa). Requests for non-US locations return a clear error. The SPC national outlook covers the contiguous US only.
 
@@ -15,6 +15,7 @@ Most tools support a `detail` parameter: **standard** gives a clean summary, **f
 - National severe outlook with human-readable region descriptions
 - NEXRAD radar station metadata and imagery URLs
 - 500mb upper-air analysis: geopotential heights, temperature, wind, and derived vorticity (synoptic-scale resolution from a 5-point finite-difference grid — useful for identifying troughs, ridges, and jet stream patterns, but not mesoscale features)
+- Soundings: the latest observed radiosonde from the nearest launch site (with its distance and direction from you) or a model profile at your exact location, with CAPE/CIN, LCL, freezing level, lapse rates, precipitable water, bulk shear, storm-relative helicity, and temperature inversions
 - Surface analysis: fronts, pressure centers (highs/lows), and warm/cold sector detection relative to the nearest cold front
 - Combined briefing that pulls everything together and adapts to the situation
 
@@ -113,12 +114,15 @@ When `TEMPEST_STATION_ID` is not set, StormScope auto-discovers the nearest stat
 | `get_national_outlook` | CONUS-wide risk areas (no lat/lon)                               | `day`: 1-3                                                                         |
 | `get_radar`            | NEXRAD radar with textual summary and clickable links            |                                                                                    |
 | `get_upper_air`        | 500mb heights, temperature, wind, derived vorticity (Open-Meteo) |                                                                                    |
+| `get_sounding`         | Observed radiosonde or model sounding with CAPE, shear, SRH      | `source`: observed or model; `station`; `hours_ahead`: 0-48; `detail`              |
 | `get_surface_analysis` | Fronts, pressure centers, warm/cold sector detection (WPC)       | `day`: 1-3; `detail`: standard or full                                             |
 | `get_briefing`         | Combined briefing, the default for general weather questions     | `detail`: standard or full                                                         |
 
 All location-aware tools accept optional `latitude`/`longitude`, falling back to the configured location (see [Location detection](#location-detection)).
 
 Upper-air data provided by [Open-Meteo](https://open-meteo.com/) under CC-BY 4.0. Vorticity is derived from model wind fields at ~110km grid spacing — this captures synoptic-scale features (shortwave troughs, jet maxima) but not mesoscale detail.
+
+Soundings come from the NWS radiosonde network via IEM, launched around 00Z and 12Z from roughly 85 US sites, so the nearest site can be hundreds of kilometers away and up to 12 hours old. `get_sounding` with `source=observed` reports the site's distance and bearing from you and adds a note when it is far or old. Use `source=model` for a profile at your exact location or a forecast hour (up to 48). Both report surface-based CAPE/CIN, LCL/LFC/EL, freezing level, lapse rates, precipitable water, 0-1 and 0-6 km bulk shear, 0-1 and 0-3 km storm-relative helicity, and temperature inversions below ~5 km. Index calculations use [MetPy](https://unidata.github.io/MetPy/).
 
 ### Example conversation
 
@@ -152,7 +156,7 @@ Create `.claude/skills/` skills for common patterns:
 - **Morning briefing**: `get_briefing detail=full` for a full picture to start the day
 - **Quick check**: `get_conditions` for just current conditions
 - **Evening review**: `get_forecast mode=daily days=2` for tonight and tomorrow
-- **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_surface_analysis` + `get_upper_air` + `get_radar` + `get_alerts detail=full`
+- **Chase prep**: `get_spc_outlook outlook_type=tornado` + `get_surface_analysis` + `get_upper_air` + `get_sounding` + `get_radar` + `get_alerts detail=full`
 
 ## Data sources
 
@@ -168,10 +172,10 @@ Categorical and probabilistic severe weather outlooks (days 1-3). SPC data is US
 Surface analysis charts with fronts and pressure centers (days 1-3). WPC data is US government public domain under the same statute as NWS. Analysis charts are updated approximately 4 times per day. No pressure values are provided for H/L centers.
 
 **Iowa Environmental Mesonet (IEM)** — [mesonet.agron.iastate.edu](https://mesonet.agron.iastate.edu) ([disclaimer](https://mesonet.agron.iastate.edu/disclaimer.php))
-NEXRAD radar station metadata and imagery. IEM data is in the public domain and may be used freely by anyone for any lawful purpose. Data provided by the Iowa Environmental Mesonet of Iowa State University.
+NEXRAD radar station metadata and imagery, plus radiosonde (weather balloon) sounding data from the NWS upper-air network. IEM data is in the public domain and may be used freely by anyone for any lawful purpose. Data provided by the Iowa Environmental Mesonet of Iowa State University.
 
 **Open-Meteo** — [open-meteo.com](https://open-meteo.com) ([terms](https://open-meteo.com/en/terms))
-500mb upper-air pressure-level data (geopotential heights, temperature, wind). Provided under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/). StormScope uses the free non-commercial tier and does not support paid Open-Meteo subscriptions.
+500mb upper-air pressure-level data (geopotential heights, temperature, wind) and model soundings. Provided under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/). StormScope uses the free non-commercial tier and does not support paid Open-Meteo subscriptions.
 
 **ipinfo.io** — [ipinfo.io](https://ipinfo.io) ([terms](https://ipinfo.io/terms-of-service))
 IP-based geolocation, used only as a last-resort fallback when no coordinates are configured and CoreLocation is unavailable. One request per server session. StormScope uses the free tier of this service and does not resell or redistribute the geolocation data. Set `DISABLE_AUTO_GEOLOCATION=true` to prevent this request entirely.

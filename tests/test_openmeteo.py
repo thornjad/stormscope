@@ -121,3 +121,91 @@ class TestGetUpperAir:
             assert result2["center"]["latitude"] == result1["center"]["latitude"]
         finally:
             await client.close()
+
+
+def _mock_sounding_response(elevation=300.0, sfc_p=970.0, hours=2) -> dict:
+    hourly = {
+        "time": [f"2026-09-20T{h:02d}:00" for h in range(17, 17 + hours)],
+        "surface_pressure": [sfc_p] * hours,
+        "temperature_2m": [30.0] * hours,
+        "dew_point_2m": [18.0] * hours,
+        "wind_speed_10m": [8.0] * hours,
+        "wind_direction_10m": [200] * hours,
+    }
+    for level in (1000, 975, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300, 250, 200, 150, 100):
+        hourly[f"temperature_{level}hPa"] = [20.0 - (1000 - level) / 30] * hours
+        hourly[f"dew_point_{level}hPa"] = [10.0 - (1000 - level) / 30] * hours
+        hourly[f"wind_speed_{level}hPa"] = [15.0] * hours
+        hourly[f"wind_direction_{level}hPa"] = [250] * hours
+        hourly[f"geopotential_height_{level}hPa"] = [(1000 - level) * 10.0 + 100] * hours
+    return {"elevation": elevation, "hourly": hourly}
+
+
+class TestGetSounding:
+    @respx.mock
+    async def test_surface_first_and_below_ground_levels_dropped(self):
+        respx.get(f"{BASE_URL}/v1/forecast").mock(
+            return_value=httpx.Response(200, json=_mock_sounding_response(sfc_p=970.0)),
+        )
+        client = OpenMeteoClient()
+        try:
+            result = await client.get_sounding(35.2, -97.4)
+            pressures = [lv["pressure"] for lv in result["profile"]]
+            assert pressures[0] == 970.0
+            assert 1000.0 not in pressures and 975.0 not in pressures
+            assert pressures[1] == 950.0
+            assert pressures == sorted(pressures, reverse=True)
+            sfc = result["profile"][0]
+            assert sfc["height"] == 300.0
+            assert sfc["temp"] == 30.0 and sfc["dewpoint"] == 18.0
+            assert sfc["wind_speed"] == 8.0 and sfc["wind_dir"] == 200
+            assert result["valid"] == "2026-09-20T17:00"
+            assert result["elevation_m"] == 300.0
+        finally:
+            await client.close()
+
+    @respx.mock
+    async def test_high_terrain_drops_more_levels(self):
+        respx.get(f"{BASE_URL}/v1/forecast").mock(
+            return_value=httpx.Response(
+                200, json=_mock_sounding_response(elevation=1600.0, sfc_p=845.0),
+            ),
+        )
+        client = OpenMeteoClient()
+        try:
+            result = await client.get_sounding(39.7, -105.0)
+            pressures = [lv["pressure"] for lv in result["profile"]]
+            assert pressures[:2] == [845.0, 800.0]
+            assert 850.0 not in pressures
+        finally:
+            await client.close()
+
+    @respx.mock
+    async def test_hours_ahead_selects_hour_and_requests_knots(self):
+        route = respx.get(f"{BASE_URL}/v1/forecast").mock(
+            return_value=httpx.Response(200, json=_mock_sounding_response(hours=4)),
+        )
+        client = OpenMeteoClient()
+        try:
+            result = await client.get_sounding(35.2, -97.4, hours_ahead=3)
+            params = route.calls.last.request.url.params
+            assert params["forecast_hours"] == "4"
+            assert params["wind_speed_unit"] == "kn"
+            assert result["valid"] == "2026-09-20T20:00"
+        finally:
+            await client.close()
+
+    @respx.mock
+    async def test_caching_keyed_on_hours_ahead(self):
+        route = respx.get(f"{BASE_URL}/v1/forecast").mock(
+            return_value=httpx.Response(200, json=_mock_sounding_response(hours=3)),
+        )
+        client = OpenMeteoClient()
+        try:
+            await client.get_sounding(35.2, -97.4, 0)
+            await client.get_sounding(35.2, -97.4, 0)
+            assert route.call_count == 1
+            await client.get_sounding(35.2, -97.4, 2)
+            assert route.call_count == 2
+        finally:
+            await client.close()

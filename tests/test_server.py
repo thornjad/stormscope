@@ -402,6 +402,17 @@ class TestServerDelegation:
         assert result == {"height_dam": "560"}
 
     @pytest.mark.asyncio
+    @patch("stormscope.tools.get_sounding", new_callable=AsyncMock)
+    async def test_sounding_delegates(self, mock_fn):
+        mock_fn.return_value = {"source": "observed"}
+        from stormscope.server import get_sounding
+        result = await get_sounding(latitude=44.9, longitude=-93.2, source="model", hours_ahead=6)
+        assert result == {"source": "observed"}
+        _, kwargs = mock_fn.call_args
+        assert kwargs["source"] == "model"
+        assert kwargs["hours_ahead"] == 6
+
+    @pytest.mark.asyncio
     @patch("stormscope.tools.get_surface_analysis", new_callable=AsyncMock)
     async def test_surface_analysis_delegates(self, mock_fn):
         mock_fn.return_value = {"fronts": []}
@@ -456,6 +467,30 @@ class TestServerLocationErrors:
         assert "error" in result
 
     @pytest.mark.asyncio
+    async def test_sounding_invalid_coords(self):
+        from stormscope.server import get_sounding
+        result = await get_sounding(latitude=95.0, longitude=-93.2)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_sounding_invalid_source(self):
+        from stormscope.server import get_sounding
+        result = await get_sounding(latitude=44.9, longitude=-93.2, source="radar")
+        assert "invalid source" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_sounding_invalid_detail(self):
+        from stormscope.server import get_sounding
+        result = await get_sounding(latitude=44.9, longitude=-93.2, detail="huge")
+        assert "invalid detail" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_units_sounding(self):
+        from stormscope.server import get_sounding
+        result = await get_sounding(units="metric")
+        assert "invalid unit system" in result["error"]
+
+    @pytest.mark.asyncio
     async def test_surface_analysis_invalid_coords(self):
         from stormscope.server import get_surface_analysis
         result = await get_surface_analysis(latitude=95.0, longitude=-93.2)
@@ -468,4 +503,5 @@ class TestMCPRegistration:
         from stormscope.server import mcp
         tools = await mcp.list_tools()
         names = [t.name for t in tools]
-        assert len(tools) == 9, f"expected 9 tools, got {len(tools)}: {names}"
+        assert len(tools) == 10, f"expected 10 tools, got {len(tools)}: {names}"
+        assert "get_sounding" in names

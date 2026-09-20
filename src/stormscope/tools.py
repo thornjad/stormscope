@@ -9,11 +9,13 @@ from stormscope.config import config
 from stormscope.geo import haversine_km, KM_PER_MI
 from stormscope.iem import IEMClient
 from stormscope.nws import NWSClient
-from stormscope.openmeteo import OpenMeteoClient
+from stormscope.openmeteo import OpenMeteoClient, MAX_SOUNDING_HOURS_AHEAD
+from stormscope.raob import RAOBClient
 from stormscope.spc import SPCClient
+from stormscope.sounding import compute_indices, find_inversions
 from stormscope.units import (
     UnitPrefs, c_to_f, degrees_to_cardinal, gpm_to_dam, kmh_to_mph,
-    m_to_miles, mm_to_inches, ms_to_kt, ms_to_mph, pa_to_inhg,
+    m_to_ft, m_to_miles, mm_to_inches, ms_to_kt, ms_to_mph, pa_to_inhg,
     parse_units, station_pressure_to_slp_mb,
 )
 from stormscope.vorticity import compute_vorticity
@@ -27,6 +29,7 @@ _nws = NWSClient()
 _spc = SPCClient()
 _iem = IEMClient()
 _openmeteo = OpenMeteoClient()
+_raob = RAOBClient()
 _wpc = WPCClient()
 _codsus = CODSUSClient()
 _tempest: TempestClient | None = TempestClient(config.tempest_token) if config.tempest_enabled else None
@@ -38,6 +41,7 @@ async def shutdown():
     await _spc.close()
     await _iem.close()
     await _openmeteo.close()
+    await _raob.close()
     await _wpc.close()
     if _tempest is not None:
         await _tempest.close()
@@ -1604,3 +1608,211 @@ async def get_surface_analysis(
     except Exception as exc:
         logger.exception("error fetching surface analysis")
         return {"error": f"failed to fetch surface analysis: {exc}"}
+
+
+_RAOB_ATTRIBUTION = (
+    "Radiosonde data via Iowa Environmental Mesonet (NWS upper-air network) "
+    "— https://mesonet.agron.iastate.edu/"
+)
+_MANDATORY_LEVELS_MB = {1000, 925, 850, 700, 500, 300, 250, 200}
+_FAR_STATION_KM = 250
+_OLD_SOUNDING_HOURS = 10
+_KT_PER_MS = 1.94384
+_WIND_PER_KT = {"kt": 1.0, "mph": 1.15078, "kmh": 1.852, "ms": 1 / _KT_PER_MS}
+_WIND_LABEL = {"kt": "kt", "mph": "mph", "kmh": "km/h", "ms": "m/s"}
+
+
+def _fmt_altitude(meters: float | None, prefs: UnitPrefs, agl: bool = False) -> str:
+    if meters is None:
+        return "N/A"
+    suffix = " AGL" if agl else ""
+    if prefs.distance == "km":
+        return f"{round(meters)} m{suffix}"
+    return f"{round(m_to_ft(meters))} ft{suffix}"
+
+
+def _fmt_kt(knots: float | None, prefs: UnitPrefs) -> str:
+    if knots is None:
+        return "N/A"
+    return f"{round(knots * _WIND_PER_KT[prefs.wind])} {_WIND_LABEL[prefs.wind]}"
+
+
+def _fmt_sounding_indices(ix: dict, prefs: UnitPrefs) -> dict:
+    def jkg(v):
+        return "N/A" if v is None else f"{round(v)} J/kg"
+
+    def lapse(v):
+        return "N/A" if v is None else f"{v:.1f} °C/km"
+
+    def helicity(v):
+        return "N/A" if v is None else f"{round(v)} m²/s²"
+
+    if ix["pwat_mm"] is None:
+        pwat = "N/A"
+    elif prefs.accumulation == "in":
+        pwat = f"{mm_to_inches(ix['pwat_mm']):.2f} in"
+    else:
+        pwat = f"{round(ix['pwat_mm'])} mm"
+
+    return {
+        "parcel": "surface-based",
+        "cape": jkg(ix["cape_jkg"]),
+        "cin": jkg(ix["cin_jkg"]),
+        "lcl": _fmt_altitude(ix["lcl_agl_m"], prefs, agl=True),
+        "lfc": _fmt_altitude(ix["lfc_agl_m"], prefs, agl=True),
+        "equilibrium_level": _fmt_altitude(ix["el_agl_m"], prefs, agl=True),
+        "freezing_level": _fmt_altitude(ix["freezing_level_agl_m"], prefs, agl=True),
+        "lapse_rate_700_500mb": lapse(ix["lapse_rate_700_500_c_km"]),
+        "lapse_rate_850_500mb": lapse(ix["lapse_rate_850_500_c_km"]),
+        "precipitable_water": pwat,
+        "bulk_shear_0_1km": _fmt_kt(ix["shear_0_1km_kt"], prefs),
+        "bulk_shear_0_6km": _fmt_kt(ix["shear_0_6km_kt"], prefs),
+        "srh_0_1km": helicity(ix["srh_0_1km"]),
+        "srh_0_3km": helicity(ix["srh_0_3km"]),
+    }
+
+
+def _fmt_inversions(layers: list[dict], prefs: UnitPrefs) -> list[dict]:
+    out = []
+    for layer in layers:
+        if prefs.temperature == "c":
+            strength = f"+{layer['delta_c']:.1f}°C"
+        else:
+            strength = f"+{layer['delta_c'] * 1.8:.1f}°F"
+        out.append({
+            "type": "surface-based" if layer["surface_based"] else "elevated",
+            "base": _fmt_altitude(layer["base_agl_m"], prefs, agl=True),
+            "top": _fmt_altitude(layer["top_agl_m"], prefs, agl=True),
+            "base_pressure": f"{layer['base_pressure_mb']:.0f} mb",
+            "top_pressure": f"{layer['top_pressure_mb']:.0f} mb",
+            "strength": strength,
+        })
+    return out
+
+
+def _fmt_sounding_levels(profile: list[dict], prefs: UnitPrefs, detail: str) -> list[dict]:
+    sfc_idx = next(
+        (i for i, lv in enumerate(profile) if lv["temp"] is not None and lv["dewpoint"] is not None),
+        None,
+    )
+    levels = []
+    for i, lv in enumerate(profile):
+        if lv["temp"] is None and lv["wind_speed"] is None:
+            continue
+        is_sfc = i == sfc_idx
+        # exact match: rounding would also pull in significant levels like 850.2 mb
+        if detail != "full" and not is_sfc and lv["pressure"] not in _MANDATORY_LEVELS_MB:
+            continue
+        wind = _fmt_upper_wind(
+            None if lv["wind_speed"] is None else lv["wind_speed"] / _KT_PER_MS,
+            lv["wind_dir"], prefs,
+        )
+        entry = {
+            "pressure": f"{lv['pressure']:.0f} mb",
+            "height": _fmt_altitude(lv["height"], prefs),
+            "temperature": _fmt_upper_temp(lv["temp"], prefs),
+            "dewpoint": _fmt_upper_temp(lv["dewpoint"], prefs),
+            "wind": wind,
+        }
+        if is_sfc:
+            entry["surface"] = True
+        levels.append(entry)
+    return levels
+
+
+async def get_sounding(
+    latitude: float, longitude: float, source: str = "observed",
+    station: str | None = None, hours_ahead: int = 0,
+    detail: str = "standard", units: str | None = None,
+) -> dict:
+    """get a vertical sounding: observed radiosonde or model profile, with derived indices."""
+    prefs = parse_units(units, config.units)
+    try:
+        if source == "observed":
+            if hours_ahead:
+                return {"error": "hours_ahead applies only to source='model'"}
+            result = await _sounding_observed(latitude, longitude, station, prefs)
+        elif source == "model":
+            if station:
+                return {"error": "station applies only to source='observed'"}
+            if not 0 <= hours_ahead <= MAX_SOUNDING_HOURS_AHEAD:
+                return {"error": f"invalid hours_ahead {hours_ahead}, must be 0-{MAX_SOUNDING_HOURS_AHEAD}"}
+            result = await _sounding_model(latitude, longitude, hours_ahead)
+        else:
+            return {"error": f"invalid source '{source}', must be 'observed' or 'model'"}
+
+        if "error" in result:
+            return result
+        profile = result.pop("_profile")
+        indices = await asyncio.to_thread(compute_indices, profile)
+        result["indices"] = _fmt_sounding_indices(indices, prefs)
+        result["inversions"] = _fmt_inversions(find_inversions(profile), prefs)
+        result["levels"] = _fmt_sounding_levels(profile, prefs, detail)
+        return result
+    except ValueError as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        logger.exception("error fetching sounding")
+        return {"error": f"failed to fetch sounding: {exc}"}
+
+
+async def _sounding_observed(
+    latitude: float, longitude: float, station_id: str | None, prefs: UnitPrefs,
+) -> dict:
+    found = await _raob.get_latest(latitude, longitude, station_id)
+    if found is None:
+        return {"error": "no recent radiosonde data available from the nearest launch sites"}
+
+    site = found["station"]
+    dist_km = found["distance_km"]
+    bearing = _bearing_deg(latitude, longitude, site["lat"], site["lon"])
+    cardinal = degrees_to_cardinal(bearing)
+    valid = found["valid"]
+    age_hours = round((datetime.now(timezone.utc) - valid).total_seconds() / 3600, 1)
+
+    notes = []
+    if dist_km > _FAR_STATION_KM:
+        notes.append(
+            f"launch site is {_fmt_distance(dist_km, prefs)} to the {cardinal}; conditions at "
+            "your location may differ. source='model' gives a profile at your exact point."
+        )
+    if age_hours > _OLD_SOUNDING_HOURS:
+        notes.append(
+            f"sounding is {age_hours:.0f}h old (launches are ~00Z and 12Z); the atmosphere may "
+            "have changed since. source='model' gives current model data."
+        )
+
+    return {
+        "source": "observed",
+        "latitude": latitude,
+        "longitude": longitude,
+        "station": {
+            "id": site["id"],
+            "name": site["name"],
+            "distance": _fmt_distance(dist_km, prefs),
+            "distance_km": round(dist_km, 1),
+            "bearing": cardinal,
+            "bearing_deg": round(bearing),
+            "elevation": _fmt_altitude(site["elevation_m"], prefs),
+            "summary": f"{site['name']}, {_fmt_distance(dist_km, prefs)} to the {cardinal}",
+        },
+        "valid": valid.strftime("%Y-%m-%dT%H:%MZ"),
+        "age_hours": age_hours,
+        "notes": notes,
+        "attribution": _RAOB_ATTRIBUTION,
+        "_profile": found["profile"],
+    }
+
+
+async def _sounding_model(latitude: float, longitude: float, hours_ahead: int) -> dict:
+    data = await _openmeteo.get_sounding(latitude, longitude, hours_ahead)
+    return {
+        "source": "model",
+        "latitude": latitude,
+        "longitude": longitude,
+        "valid": f"{data['valid']}Z",
+        "hours_ahead": hours_ahead,
+        "notes": ["model-derived profile at your location, not an observation"],
+        "attribution": _ATTRIBUTION,
+        "_profile": data["profile"],
+    }
