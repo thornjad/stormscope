@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.1
 
 - fix Tempest daily highs and lows never overriding NWS in `get_forecast mode=daily`; the merge read `air_max`/`air_min`, but `better_forecast` returns `air_temp_high`/`air_temp_low`, and the test mocks used the same wrong names
 - an evening night period (such as "Tonight") now takes the next date's Tempest low, since the low happens before dawn; previously it would have used the current calendar day's
