@@ -2191,6 +2191,26 @@ class TestTempestIntegration:
         assert period["temperature"] == "72°F"
         assert "nws_temperature" not in period
 
+    def test_merge_forecast_daily_high_not_overwritten_by_hourly_temperature(self):
+        """a daily-mode period whose start hour has an hourly entry keeps the daily high."""
+        from stormscope.tools import _merge_tempest_forecast
+        from datetime import datetime, timezone
+        import copy
+
+        tempest_fc = copy.deepcopy(MOCK_TEMPEST_FORECAST_RESPONSE)
+        tempest_fc["forecast"]["hourly"][0]["air_temperature"] = 23.0
+
+        hourly_epoch = tempest_fc["forecast"]["hourly"][0]["time"]
+        start_str = datetime.fromtimestamp(hourly_epoch, tz=timezone.utc).isoformat()
+        nws_result = {
+            "periods": [{"start_time": start_str, "temperature": "72°F", "is_daytime": True}],
+            "location": "Minneapolis, MN",
+        }
+        result = _merge_tempest_forecast(nws_result, tempest_fc, US_PREFS)
+        period = result["periods"][0]
+        assert period["temperature"] == "24°F"
+        assert period["nws_temperature"] == "72°F"
+
     def test_merge_forecast_hourly_wind_overwrite(self):
         """hourly Tempest wind overwrites NWS wind with sidecar."""
         from stormscope.tools import _merge_tempest_forecast

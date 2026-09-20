@@ -369,8 +369,9 @@ def _merge_tempest_forecast(nws_result: dict, tempest_forecast: dict, prefs: Uni
             if precip_type and precip_type != "none" and (precip_prob is None or precip_prob > 0):
                 p["precip_type"] = precip_type
 
+            # a 12h daily period keeps its daily high/low, not the start-hour reading
             air_temp = th.get("air_temperature")
-            if air_temp is not None:
+            if air_temp is not None and "is_daytime" not in p:
                 f_val = air_temp if prefs.temperature == "f" else None
                 c_val = air_temp if prefs.temperature == "c" else None
                 p["temperature"] = _fmt_temp(f_val, c_val, prefs)
